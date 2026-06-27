@@ -1,0 +1,57 @@
+name: ✅ CI
+
+on:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  ci:
+    name: 🔍 Lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.14.2
+
+      - name: Align pnpm store for Actions cache
+        run: |
+          pnpm config set store-dir "${{ github.workspace }}/.pnpm-store"
+          mkdir -p "$(pnpm store path --silent)"
+
+      - name: ⬢ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+          cache-dependency-path: |
+            backend/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+
+      - name: 📚 Install backend dependencies
+        run: cd backend && pnpm install --frozen-lockfile
+
+      - name: 📚 Install frontend dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: 🧹 Lint backend
+        run: cd backend && pnpm run lint
+
+      - name: 🔎 Typecheck backend
+        run: cd backend && pnpm run typecheck
+
+      - name: 🧹 Lint frontend
+        run: cd frontend && pnpm run lint
+
+      - name: 🔎 Typecheck frontend
+        run: cd frontend && pnpm run typecheck
+
+      - name: 🔨 Build backend
+        run: cd backend && pnpm run build
+
+      - name: 🔨 Build frontend
+        run: cd frontend && pnpm run build
