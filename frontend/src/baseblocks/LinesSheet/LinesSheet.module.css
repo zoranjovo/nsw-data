@@ -1,0 +1,257 @@
+.placeholder {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+
+.layout {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  margin: -16px;
+  margin-top: 0;
+}
+
+.lineList {
+  flex: 0 0 min(11rem, 36vw);
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lineListUl {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+}
+
+.lineListItem {
+  margin: 0;
+}
+
+.lineButton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lineTextCol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lineStatsWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.lineStats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--muted-foreground);
+}
+
+.lineStatGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.lineStatIcon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.lineStatIconAlert {
+  flex-shrink: 0;
+  color: var(--foreground);
+  opacity: 0.75;
+}
+
+.lineStatNum {
+  font-variant-numeric: tabular-nums;
+  min-width: 0.65em;
+}
+
+.lineButton:hover {
+  background: var(--accent);
+}
+
+.lineButton[data-selected="true"] {
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.lineButton:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.lineSwatch {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.lineShortName {
+  min-width: 0;
+}
+
+.detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.lineAlerts {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--muted);
+}
+
+.lineAlertsSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  cursor: pointer;
+  list-style: none;
+}
+
+.lineAlertsSummary::-webkit-details-marker {
+  display: none;
+}
+
+.lineAlertsSummary::after {
+  content: "";
+  width: 0;
+  height: 0;
+  margin-left: auto;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid var(--muted-foreground);
+  flex-shrink: 0;
+  opacity: 0.85;
+  transition: transform 0.15s ease;
+}
+
+.lineAlerts[open] .lineAlertsSummary::after {
+  transform: rotate(180deg);
+}
+
+.lineAlertsSummary:hover {
+  background: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.lineAlertsSummary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: calc(var(--radius) - 4px);
+}
+
+.lineAlertsIcon {
+  flex-shrink: 0;
+  color: var(--foreground);
+  opacity: 0.9;
+}
+
+.lineAlertsList {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lineAlertsItem {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.lineAlertsItem:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.lineAlertsItemTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.lineAlertsItemBody {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--foreground);
+  white-space: pre-wrap;
+}
+
+.lineAlertsItemLink {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lineAlertsItemLink:hover {
+  color: var(--muted-foreground);
+}
+
+.lineAlertsItemLink:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

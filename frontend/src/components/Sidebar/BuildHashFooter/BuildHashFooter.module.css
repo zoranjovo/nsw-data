@@ -1,0 +1,37 @@
+.footer {
+  padding: 8px 12px;
+}
+
+.buildHashButton {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  cursor: pointer;
+  overflow: hidden;
+  transition: opacity 0.2s ease;
+}
+
+.buildHash {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--sidebar-foreground);
+  opacity: 0.35;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+
+.buildHashButton:hover .buildHash {
+  opacity: 0.6;
+}
+
+.buildHashValue {
+  font-family: ui-monospace, monospace;
+}
+
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules :global selector */
+:global([data-slot="sidebar"][data-collapsible="icon"]) .buildHashButton {
+  opacity: 0;
+}

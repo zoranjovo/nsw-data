@@ -1,0 +1,106 @@
+.mapWrapper {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+  background: #1f2937;
+}
+
+.layerSelector {
+  position: absolute;
+  top: 108px;
+  left: 10px;
+  z-index: 10;
+}
+
+.layerButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  color: #333;
+}
+
+.layerButton:hover {
+  background: #f4f4f4;
+}
+
+.layerPanel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: auto;
+  margin-top: 4px;
+  min-width: 160px;
+  padding: 4px 0;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
+
+.layerOption {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+  color: #333;
+}
+
+.layerOption:hover {
+  background: #f4f4f4;
+}
+
+.layerOption[aria-selected="true"] {
+  font-weight: 600;
+}
+
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules :global selector */
+:global(.popup-dark.maplibregl-popup .maplibregl-popup-content) {
+  background: #1f2937;
+  color: #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  padding: 10px 12px;
+}
+
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules :global selector */
+:global(.popup-dark.maplibregl-popup .maplibregl-popup-tip) {
+  border-top-color: #1f2937;
+}
+
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules :global selector */
+:global(.popup-dark.maplibregl-popup .maplibregl-popup-close-button) {
+  color: #9ca3af;
+  font-size: 18px;
+}
+
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules :global selector */
+:global(.popup-dark.maplibregl-popup .maplibregl-popup-close-button:hover) {
+  color: #e5e7eb;
+}
+
+@media (max-width: 767px) {
+  /* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules :global selector */
+  :global(.maplibregl-ctrl-top-left) {
+    top: 46px;
+  }
+
+  .layerSelector {
+    top: 154px;
+  }
+}

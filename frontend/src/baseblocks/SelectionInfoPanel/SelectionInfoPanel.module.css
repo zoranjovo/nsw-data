@@ -1,0 +1,269 @@
+.desktopPanelWrap {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1001;
+  width: 26rem;
+  pointer-events: none;
+}
+
+.desktopSidebar {
+  height: 100%;
+  width: 100%;
+  background: oklch(0.1 0.012 250 / 0.97);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border-left: 1px solid oklch(1 0 0 / 0.07);
+  box-shadow:
+    -1px 0 0 oklch(1 0 0 / 0.04),
+    -16px 0 50px oklch(0 0 0 / 0.5),
+    -60px 0 120px oklch(0 0 0 / 0.22);
+  transform: translateX(100%);
+  opacity: 0;
+  transition:
+    transform 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: oklch(0.92 0 0);
+}
+
+.desktopPanelWrap[data-open="true"] .desktopSidebar {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.panelInner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.header {
+  position: relative;
+  padding: 20px 16px 16px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border-bottom: 1px solid oklch(1 0 0 / 0.07);
+}
+
+.headerGlow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 220% 180% at -15% -25%,
+    var(--route-color, oklch(0.5 0.15 250)) 0%,
+    transparent 58%
+  );
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.headerTopRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.routeBadge {
+  flex-shrink: 0;
+  min-width: 46px;
+  height: 46px;
+  padding: 0 12px;
+  border-radius: 11px;
+  background: var(--route-color, oklch(0.5 0.15 250));
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: "Consolas", "Courier New", monospace;
+  letter-spacing: -0.02em;
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 3px 14px oklch(0 0 0 / 0.4),
+    inset 0 1px 0 oklch(1 0 0 / 0.22),
+    inset 0 -1px 0 oklch(0 0 0 / 0.2);
+  text-shadow: 0 1px 3px oklch(0 0 0 / 0.45);
+}
+
+.trainIdentity {
+  flex: 1;
+  min-width: 0;
+  padding-top: 3px;
+}
+
+.vehicleLabel {
+  margin: 0;
+  font-size: 0.97rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: oklch(0.93 0 0);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.routeIdLabel {
+  margin: 3px 0 0;
+  font-size: 0.71rem;
+  font-weight: 500;
+  color: oklch(0.45 0 0);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.closeBtn {
+  flex-shrink: 0;
+  color: oklch(0.52 0 0);
+  background: transparent;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.closeBtn:hover {
+  color: oklch(0.86 0 0);
+  background: oklch(1 0 0 / 0.08);
+}
+
+.statsRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stat + .stat {
+  padding-left: 14px;
+  border-left: 1px solid oklch(1 0 0 / 0.09);
+}
+
+.statLabel {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: oklch(0.4 0 0);
+}
+
+.statValue {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: oklch(0.76 0 0);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.rawSection {
+  padding: 10px 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid oklch(1 0 0 / 0.06);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: minmax(76px, auto) 1fr;
+  row-gap: 6px;
+  column-gap: 10px;
+  padding: 10px 12px;
+  background: oklch(1 0 0 / 0.04);
+  border-radius: 8px;
+  border: 1px solid oklch(1 0 0 / 0.08);
+}
+
+.details dt {
+  margin: 0;
+  color: oklch(0.44 0 0);
+  font-size: 0.71rem;
+  font-weight: 500;
+}
+
+.details dd {
+  margin: 0;
+  text-align: right;
+  color: oklch(0.74 0 0);
+  font-size: 0.76rem;
+  font-weight: 500;
+  word-break: break-word;
+  font-variant-numeric: tabular-nums;
+}
+
+.timelineSection {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.timelineHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 6px;
+  flex-shrink: 0;
+}
+
+.timelineLabel {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: oklch(0.4 0 0);
+}
+
+.rawToggle {
+  font-size: 0.68rem;
+  height: 22px;
+  padding: 0 8px;
+  color: oklch(0.48 0 0);
+  border: 1px solid oklch(1 0 0 / 0.1);
+  background: transparent;
+  letter-spacing: 0.02em;
+  border-radius: 6px;
+}
+
+.rawToggle:hover {
+  background: oklch(1 0 0 / 0.06);
+  color: oklch(0.72 0 0);
+  border-color: oklch(1 0 0 / 0.16);
+}
+
+.rawToggle[aria-pressed="true"] {
+  background: oklch(1 0 0 / 0.08);
+  color: oklch(0.8 0 0);
+}
+
+.timelineScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 16px 8px;
+}
+
+.desktopSpacer {
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.mobileSheetContent {
+  z-index: 100;
+  background: oklch(0.1 0.012 250 / 0.99);
+  color: oklch(0.92 0 0);
+  border-color: oklch(1 0 0 / 0.07);
+  padding: 0;
+  gap: 0;
+}
