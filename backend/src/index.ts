@@ -7,6 +7,7 @@ import { appState, initialiseApp, wakeUpApp } from "./state/appState";
 
 const app = express();
 
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(compression());
 app.use(express.json());
