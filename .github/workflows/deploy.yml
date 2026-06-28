@@ -1,0 +1,61 @@
+name: 🚀 Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy_frontend:
+    name: ☁️ Deploy frontend to Cloudflare Pages
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.14.2
+
+      - name: Align pnpm store for Actions cache
+        run: |
+          pnpm config set store-dir "${{ github.workspace }}/.pnpm-store"
+          mkdir -p "$(pnpm store path --silent)"
+
+      - name: ⬢ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 📚 Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: 🔨 Build frontend
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        run: cd frontend && pnpm run build
+
+      - name: ☁️ Deploy frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >
+          npx wrangler@3.90.0 pages deploy frontend/dist
+          --project-name=${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
+          --branch=main
+
+  deploy_backend:
+    name: 🚀 Trigger Coolify backend deployment
+    if: github.ref == 'refs/heads/main'
+    needs: deploy_frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🚀 Trigger Coolify webhook
+        run: |
+          curl -X GET "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
