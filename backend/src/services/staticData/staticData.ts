@@ -488,6 +488,18 @@ const downloadAndSaveAssets = async (assetDir: string): Promise<void> => {
   });
 
   const parsed = await parseGtfsZip(response.data);
+
+  if (
+    parsed.stops.length === 0 ||
+    parsed.routes.length === 0 ||
+    parsed.trips.length === 0 ||
+    parsed.stopTimes.length === 0
+  ) {
+    throw new Error(
+      `Downloaded GTFS static data looks empty or truncated (stops=${parsed.stops.length} routes=${parsed.routes.length} trips=${parsed.trips.length} stopTimes=${parsed.stopTimes.length}); keeping previous assets`
+    );
+  }
+
   const tracks = toTracksFeatureCollection(parsed.shapes, parsed.routeMetaById, parsed.tripShapes);
   await mkdir(assetDir, { recursive: true });
 
