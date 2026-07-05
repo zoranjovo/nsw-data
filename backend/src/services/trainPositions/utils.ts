@@ -1,6 +1,5 @@
 import { DateTime } from "luxon";
 import type { TrainPosition } from "../../types/train/train";
-import { isExcludedTrainRouteId } from "../excludedTrainRoutes";
 import type { DecodedFeed } from "../gtfsRealtime";
 
 export const toTrainPositions = (feed: DecodedFeed): TrainPosition[] => {
@@ -25,7 +24,7 @@ export const toTrainPositions = (feed: DecodedFeed): TrainPosition[] => {
     }
 
     const routeId = vehicle.trip?.routeId ?? "";
-    if (!routeId || isExcludedTrainRouteId(routeId)) {
+    if (!routeId) {
       continue;
     }
 

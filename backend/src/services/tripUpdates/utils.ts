@@ -1,5 +1,4 @@
 import type { TripUpdateEntry, TripUpdateStopTime } from "../../types/train/tripUpdates";
-import { isExcludedTrainRouteId } from "../excludedTrainRoutes";
 import type { DecodedFeed } from "../gtfsRealtime";
 
 type FeedEntity = DecodedFeed["entity"][number];
@@ -166,7 +165,7 @@ export const toTripUpdates = (feed: DecodedFeed): TripUpdateEntry[] => {
 
   for (const entity of feed.entity ?? []) {
     const tripUpdate = toStopTimeUpdate(entity);
-    if (!tripUpdate || isExcludedTrainRouteId(tripUpdate.routeId)) {
+    if (!tripUpdate) {
       continue;
     }
     nextTripUpdates.push(tripUpdate);
