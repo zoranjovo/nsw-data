@@ -1,7 +1,5 @@
-import type GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import type { TrainAlert } from "../../types/train/alerts";
-
-type DecodedFeed = ReturnType<typeof GtfsRealtimeBindings.transit_realtime.FeedMessage.decode>;
+import type { DecodedFeed } from "../gtfsRealtime";
 
 const getTranslatedText = (
   value: { translation?: Array<{ text?: string }> | null } | null | undefined

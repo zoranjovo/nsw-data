@@ -1,8 +1,7 @@
-import type GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import type { TripUpdateEntry, TripUpdateStopTime } from "../../types/train/tripUpdates";
 import { isExcludedTrainRouteId } from "../excludedTrainRoutes";
+import type { DecodedFeed } from "../gtfsRealtime";
 
-type DecodedFeed = ReturnType<typeof GtfsRealtimeBindings.transit_realtime.FeedMessage.decode>;
 type FeedEntity = DecodedFeed["entity"][number];
 
 export const normalizeGtfsRealtimeEpoch = (value: number | null | undefined): number | null => {

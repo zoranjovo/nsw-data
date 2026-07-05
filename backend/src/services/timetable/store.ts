@@ -5,7 +5,7 @@ import type {
   StaticTimetableSnapshot,
   StaticTrip,
 } from "../../types/train/timetable";
-import { getCached, setCached } from "../../utils/serviceCache";
+import { createSnapshotStore } from "../../utils/serviceCache";
 
 const STATIC_TIMETABLE_KEY = "timetable:static";
 
@@ -14,25 +14,26 @@ const defaultStaticTimetable: StaticTimetableSnapshot = {
   routesById: new Map<string, StaticRoute>(),
   tripsById: new Map<string, StaticTrip>(),
   stopTimesByTripId: new Map<string, StaticStopTime[]>(),
-  tripIdsByRouteId: new Map<string, string[]>(),
-  tripIdsByStopId: new Map<string, string[]>(),
   fetchedAt: 0,
 };
 
-let fetchPromise: Promise<void> | null = null;
+const staticTimetableStore = createSnapshotStore<StaticTimetableSnapshot>(
+  STATIC_TIMETABLE_KEY,
+  defaultStaticTimetable
+);
 
 export const getStaticTimetable = (): StaticTimetableSnapshot => {
-  return getCached<StaticTimetableSnapshot>(STATIC_TIMETABLE_KEY) ?? defaultStaticTimetable;
+  return staticTimetableStore.get();
 };
 
 export const setStaticTimetable = (snapshot: StaticTimetableSnapshot): void => {
-  setCached<StaticTimetableSnapshot>(STATIC_TIMETABLE_KEY, snapshot);
+  staticTimetableStore.set(snapshot);
 };
 
 export const getStaticTimetableFetchPromise = (): Promise<void> | null => {
-  return fetchPromise;
+  return staticTimetableStore.getFetchPromise();
 };
 
 export const setStaticTimetableFetchPromise = (nextPromise: Promise<void> | null): void => {
-  fetchPromise = nextPromise;
+  staticTimetableStore.setFetchPromise(nextPromise);
 };

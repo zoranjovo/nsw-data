@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
 import { buildAnimationWaypoints, interpolatePosition } from "@/lib/trainPositionInterpolator";
 import { useAppContext } from "@/providers/AppProvider";
-import type { TimetableData } from "@/types/train/timetable";
+import { isTimetableData } from "@/types/train/timetable";
 import type { TrainPosition } from "@/types/train/train";
-import { useMapLibre } from "../MapView/MapContext";
+import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
 import { syncTrainOverlayLayerOrder, TRAIN_POSITIONS_LAYER_ID } from "../trainMapLayers";
 
 const SOURCE_ID = "train-positions";
@@ -54,24 +54,23 @@ const positionsToGeoJSON = (
   return { type: "FeatureCollection", features };
 };
 
-const isTimetableData = (value: unknown): value is TimetableData => {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<TimetableData>;
-  return typeof candidate.tripId === "string" && Array.isArray(candidate.stops);
-};
-
 const uniqueTripIds = (tripIds: string[]): string[] => [
   ...new Set(tripIds.filter((tripId) => tripId.trim().length > 0)),
 ];
 
-const createArrowImage = (size: number): ImageData => {
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("2D canvas context unavailable");
-  }
+type ArrowShapeOptions = {
+  shadowColor: string;
+  borderColor: string;
+  borderWidth: number;
+  /** Extra glow strokes drawn under the drop shadow (selected-state only). */
+  glowLayers?: [string, number][];
+};
+
+const drawArrowShape = (
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  options: ArrowShapeOptions
+): void => {
   const cx = size / 2;
   const pad = size * 0.1;
   const notchY = size * 0.59;
@@ -87,9 +86,19 @@ const createArrowImage = (size: number): ImageData => {
 
   ctx.clearRect(0, 0, size, size);
 
+  if (options.glowLayers) {
+    for (const [color, lineWidth] of options.glowLayers) {
+      traceArrow();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
+  }
+
   ctx.save();
   ctx.translate(size * 0.04, size * 0.06);
-  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.fillStyle = options.shadowColor;
   traceArrow();
   ctx.fill();
   ctx.restore();
@@ -114,8 +123,8 @@ const createArrowImage = (size: number): ImageData => {
   ctx.fill();
 
   traceArrow();
-  ctx.strokeStyle = "rgba(255,255,255,0.95)";
-  ctx.lineWidth = Math.max(1, size * 0.03);
+  ctx.strokeStyle = options.borderColor;
+  ctx.lineWidth = options.borderWidth;
   ctx.lineJoin = "round";
   ctx.stroke();
 
@@ -125,6 +134,22 @@ const createArrowImage = (size: number): ImageData => {
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
   ctx.lineWidth = Math.max(0.5, size * 0.016);
   ctx.stroke();
+};
+
+const createArrowImage = (size: number): ImageData => {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("2D canvas context unavailable");
+  }
+
+  drawArrowShape(ctx, size, {
+    shadowColor: "rgba(0,0,0,0.22)",
+    borderColor: "rgba(255,255,255,0.95)",
+    borderWidth: Math.max(1, size * 0.03),
+  });
 
   return ctx.getImageData(0, 0, size, size);
 };
@@ -136,77 +161,16 @@ const createSelectedArrowImage = (size: number): ImageData => {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2D canvas context unavailable");
 
-  const cx = size / 2;
-  const pad = size * 0.1;
-  const notchY = size * 0.59;
-
-  const traceArrow = () => {
-    ctx.beginPath();
-    ctx.moveTo(cx, pad);
-    ctx.lineTo(size - pad, size - pad);
-    ctx.lineTo(cx, notchY);
-    ctx.lineTo(pad, size - pad);
-    ctx.closePath();
-  };
-
-  ctx.clearRect(0, 0, size, size);
-
-  const glowLayers: [string, number][] = [
-    ["rgba(56, 189, 248, 0.18)", size * 0.18],
-    ["rgba(56, 189, 248, 0.32)", size * 0.12],
-    ["rgba(56, 189, 248, 0.55)", size * 0.07],
-  ];
-  for (const [color, lineWidth] of glowLayers) {
-    traceArrow();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
-    ctx.lineJoin = "round";
-    ctx.stroke();
-  }
-
-  // Drop shadow
-  ctx.save();
-  ctx.translate(size * 0.04, size * 0.06);
-  ctx.fillStyle = "rgba(0,0,0,0.3)";
-  traceArrow();
-  ctx.fill();
-  ctx.restore();
-
-  // Body fil
-  ctx.save();
-  traceArrow();
-  ctx.clip();
-  const bodyGrad = ctx.createLinearGradient(cx, pad, cx, size - pad);
-  bodyGrad.addColorStop(0, "rgb(218, 228, 100)");
-  bodyGrad.addColorStop(0.4, "rgb(196, 210, 45)");
-  bodyGrad.addColorStop(1, "rgb(118, 128, 28)");
-  ctx.fillStyle = bodyGrad;
-  ctx.fillRect(0, 0, size, size);
-  ctx.restore();
-
-  // Dark overlay on the forward half
-  ctx.beginPath();
-  ctx.moveTo(cx, pad);
-  ctx.lineTo(size - pad, size - pad);
-  ctx.lineTo(cx, notchY);
-  ctx.closePath();
-  ctx.fillStyle = "rgba(72, 78, 16, 0.42)";
-  ctx.fill();
-
-  // Thick bright-white border
-  traceArrow();
-  ctx.strokeStyle = "rgba(255,255,255,1)";
-  ctx.lineWidth = Math.max(2, size * 0.065);
-  ctx.lineJoin = "round";
-  ctx.stroke();
-
-  // Highlight sheen
-  ctx.beginPath();
-  ctx.moveTo(cx * 0.92, pad + size * 0.08);
-  ctx.lineTo(pad + size * 0.06, size - pad - size * 0.08);
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.lineWidth = Math.max(0.5, size * 0.016);
-  ctx.stroke();
+  drawArrowShape(ctx, size, {
+    shadowColor: "rgba(0,0,0,0.3)",
+    borderColor: "rgba(255,255,255,1)",
+    borderWidth: Math.max(2, size * 0.065),
+    glowLayers: [
+      ["rgba(56, 189, 248, 0.18)", size * 0.18],
+      ["rgba(56, 189, 248, 0.32)", size * 0.12],
+      ["rgba(56, 189, 248, 0.55)", size * 0.07],
+    ],
+  });
 
   return ctx.getImageData(0, 0, size, size);
 };
@@ -328,10 +292,9 @@ export const TrainIcons = () => {
 
   useEffect(() => {
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
 
     const registerIcon = () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       if (!map.hasImage(ICON_ID)) {
         map.addImage(ICON_ID, createArrowImage(48), { sdf: false });
       }
@@ -368,7 +331,7 @@ export const TrainIcons = () => {
     ] as ExpressionSpecification;
 
     const addTrainPositionsLayer = () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       registerIcon();
       if (!map.getSource(SOURCE_ID)) {
         map.addSource(SOURCE_ID, { type: "geojson", data: EMPTY_GEOJSON });
@@ -441,7 +404,7 @@ export const TrainIcons = () => {
     map.on("click", LAYER_ID, onClick);
 
     return () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       map.off("style.load", addTrainPositionsLayer);
       map.off("mouseenter", LAYER_ID, onMouseEnter);
       map.off("mouseleave", LAYER_ID, onMouseLeave);
@@ -462,8 +425,7 @@ export const TrainIcons = () => {
 
   useEffect(() => {
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
-    if (isMapRemoved()) return;
+    if (isMapRemoved(map)) return;
 
     const positions = trainRealtime.positions;
     positionsRef.current = positions.items;
@@ -483,12 +445,11 @@ export const TrainIcons = () => {
 
   useEffect(() => {
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
-    if (isMapRemoved()) return;
+    if (isMapRemoved(map)) return;
     if (!interpolatedTrainMovement) return;
 
     const updateDisplayPositions = () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
       if (!source) return;
 
@@ -537,13 +498,12 @@ export const TrainIcons = () => {
 
   useEffect(() => {
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
-    if (isMapRemoved()) return;
+    if (isMapRemoved(map)) return;
     if (!interpolatedTrainMovement) return;
 
     let timeoutId: number | null = null;
     const prefetchVisibleTimetables = () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       void fetchAndCacheTimetables(getVisibleTrainTripIds());
     };
     const schedulePrefetch = () => {
@@ -560,7 +520,7 @@ export const TrainIcons = () => {
       if (timeoutId != null) {
         window.clearTimeout(timeoutId);
       }
-      if (!isMapRemoved()) {
+      if (!isMapRemoved(map)) {
         map.off("moveend", schedulePrefetch);
       }
     };
@@ -569,8 +529,7 @@ export const TrainIcons = () => {
   useEffect(() => {
     selectedItemRef.current = selectedItem;
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
-    if (isMapRemoved()) return;
+    if (isMapRemoved(map)) return;
 
     const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
     if (!source) return;

@@ -1,9 +1,7 @@
-import type GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { DateTime } from "luxon";
 import type { TrainPosition } from "../../types/train/train";
 import { isExcludedTrainRouteId } from "../excludedTrainRoutes";
-
-type DecodedFeed = ReturnType<typeof GtfsRealtimeBindings.transit_realtime.FeedMessage.decode>;
+import type { DecodedFeed } from "../gtfsRealtime";
 
 export const toTrainPositions = (feed: DecodedFeed): TrainPosition[] => {
   const positions: TrainPosition[] = [];

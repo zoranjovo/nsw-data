@@ -2,7 +2,7 @@ import type maplibregl from "maplibre-gl";
 import { useEffect, useMemo } from "react";
 import { useAppContext } from "@/providers/AppProvider";
 import type { TrainStopsResponse } from "@/types/train/stops";
-import { useMapLibre } from "../MapView/MapContext";
+import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
 import {
   STATION_LABEL_MIN_ZOOM,
   syncTrainOverlayLayerOrder,
@@ -43,10 +43,9 @@ export const TrainStations = () => {
 
   useEffect(() => {
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
 
     const addTrainStopsLayer = () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       if (map.getSource(SOURCE_ID)) return;
       map.addSource(SOURCE_ID, {
         type: "geojson",
@@ -93,7 +92,7 @@ export const TrainStations = () => {
     map.on("style.load", addTrainStopsLayer);
 
     return () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       map.off("style.load", addTrainStopsLayer);
       if (map.getSource(SOURCE_ID)) {
         if (map.getLayer(TRAIN_STOPS_LABELS_LAYER_ID)) {
@@ -107,8 +106,7 @@ export const TrainStations = () => {
 
   useEffect(() => {
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
-    if (isMapRemoved()) return;
+    if (isMapRemoved(map)) return;
     const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
     if (source) {
       source.setData(geojsonData);
@@ -122,7 +120,7 @@ export const TrainStations = () => {
       }
     };
 
-    if (!isMapRemoved() && map.isStyleLoaded()) {
+    if (!isMapRemoved(map) && map.isStyleLoaded()) {
       syncAfterStyleLoad();
     } else {
       map.once("style.load", syncAfterStyleLoad);

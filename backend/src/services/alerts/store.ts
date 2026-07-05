@@ -1,5 +1,5 @@
 import type { AlertsSnapshot } from "../../types/train/alerts";
-import { getCached, setCached } from "../../utils/serviceCache";
+import { createSnapshotStore } from "../../utils/serviceCache";
 
 const ALERTS_KEY = "alerts:snapshot";
 
@@ -9,20 +9,20 @@ const defaultAlerts: AlertsSnapshot = {
   expiresAt: 0,
 };
 
-let fetchPromise: Promise<void> | null = null;
+const alertsStore = createSnapshotStore<AlertsSnapshot>(ALERTS_KEY, defaultAlerts);
 
 export const getAlertsSnapshotData = (): AlertsSnapshot => {
-  return getCached<AlertsSnapshot>(ALERTS_KEY) ?? defaultAlerts;
+  return alertsStore.get();
 };
 
 export const setAlertsSnapshotData = (snapshot: AlertsSnapshot): void => {
-  setCached<AlertsSnapshot>(ALERTS_KEY, snapshot);
+  alertsStore.set(snapshot);
 };
 
 export const getAlertsFetchPromise = (): Promise<void> | null => {
-  return fetchPromise;
+  return alertsStore.getFetchPromise();
 };
 
 export const setAlertsFetchPromise = (nextPromise: Promise<void> | null): void => {
-  fetchPromise = nextPromise;
+  alertsStore.setFetchPromise(nextPromise);
 };

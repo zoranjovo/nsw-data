@@ -1,3 +1,4 @@
+import { closestPointOnSegment } from "@/lib/geo";
 import { resolveNextStopForBearing } from "@/lib/timetableStopMoments";
 import type { TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
@@ -10,22 +11,6 @@ export const computeBearing = (lat1: number, lon1: number, lat2: number, lon2: n
   const y = Math.sin(dLon) * Math.cos(lat2R);
   const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLon);
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-};
-
-const pointToSegmentDistSq = (
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): number => {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return (px - ax) ** 2 + (py - ay) ** 2;
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-  return (px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2;
 };
 
 export const nearestTrackBearing = (
@@ -45,7 +30,7 @@ export const nearestTrackBearing = (
     for (let i = 0; i < coords.length - 1; i++) {
       const [x1, y1] = coords[i];
       const [x2, y2] = coords[i + 1];
-      const distSq = pointToSegmentDistSq(lon, lat, x1, y1, x2, y2);
+      const distSq = closestPointOnSegment(lon, lat, x1, y1, x2, y2).distanceSq;
       if (distSq < minDistSq) {
         minDistSq = distSq;
         bestBearing = computeBearing(y1, x1, y2, x2);

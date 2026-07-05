@@ -74,7 +74,5 @@ export type StaticTimetableSnapshot = {
   routesById: Map<string, StaticRoute>;
   tripsById: Map<string, StaticTrip>;
   stopTimesByTripId: Map<string, StaticStopTime[]>;
-  tripIdsByRouteId: Map<string, string[]>;
-  tripIdsByStopId: Map<string, string[]>;
   fetchedAt: number;
 };

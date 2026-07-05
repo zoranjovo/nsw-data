@@ -1,4 +1,5 @@
-import { effectiveStopTimeEpoch } from "@/lib/timetableStopMoments";
+import { approxDistanceMeters, closestPointOnSegment } from "@/lib/geo";
+import { stopArrivalEpoch, stopDepartureEpoch } from "@/lib/timetableStopMoments";
 import { computeBearing } from "@/lib/trainBearing";
 import type { TimetableData, TimetableStop } from "@/types/train/timetable";
 import type { TrainTrackCoordinate, TrainTracksResponse } from "@/types/train/tracks";
@@ -40,20 +41,6 @@ type TrackProjection = {
   distanceSq: number;
 };
 
-const stopArrivalEpoch = (stop: TimetableStop): number | null =>
-  effectiveStopTimeEpoch(
-    stop.realtimeArrivalTimestamp,
-    stop.scheduledArrivalTimestamp,
-    stop.arrivalDelaySeconds
-  );
-
-const stopDepartureEpoch = (stop: TimetableStop): number | null =>
-  effectiveStopTimeEpoch(
-    stop.realtimeDepartureTimestamp,
-    stop.scheduledDepartureTimestamp,
-    stop.departureDelaySeconds
-  );
-
 const stopEpochs = (stop: TimetableStop): number[] => [
   ...new Set([stopArrivalEpoch(stop), stopDepartureEpoch(stop)].filter(isFiniteNumber)),
 ];
@@ -64,18 +51,6 @@ const isDuringStationDwell = (stop: TimetableStop, epochSeconds: number): boolea
   return (
     arrival != null && departure != null && epochSeconds >= arrival && epochSeconds <= departure
   );
-};
-
-const approxDistanceMeters = (
-  fromLatitude: number,
-  fromLongitude: number,
-  toLatitude: number,
-  toLongitude: number
-): number => {
-  const dy = (toLatitude - fromLatitude) * 111_000;
-  const cosLat = Math.cos((fromLatitude * Math.PI) / 180);
-  const dx = (toLongitude - fromLongitude) * 111_000 * cosLat;
-  return Math.hypot(dx, dy);
 };
 
 const buildTrackPath = (coordinates: TrainTrackCoordinate[]): TrackPath | null => {
@@ -121,11 +96,9 @@ const projectWaypointToPath = (
     const py = waypoint.latitude * 111_000;
     const dx = bx - ax;
     const dy = by - ay;
-    const segmentLengthSq = dx * dx + dy * dy;
-    if (segmentLengthSq === 0) continue;
+    if (dx * dx + dy * dy === 0) continue;
 
-    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / segmentLengthSq));
-    const distanceSq = (px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2;
+    const { t, distanceSq } = closestPointOnSegment(px, py, ax, ay, bx, by);
     const segmentDistance = end.distanceMeters - start.distanceMeters;
     const distanceMeters = start.distanceMeters + segmentDistance * t;
 

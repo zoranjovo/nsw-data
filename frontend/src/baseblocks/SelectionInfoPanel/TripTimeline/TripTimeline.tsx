@@ -1,11 +1,17 @@
 import { DateTime } from "luxon";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { getTrainTimetable } from "@/client-api/train";
-import { effectiveStopTimeEpoch, getStopOrderingMoment } from "@/lib/timetableStopMoments";
+import {
+  effectiveStopTimeEpoch,
+  getStopOrderingMoment,
+  stopArrivalEpoch,
+  stopDepartureEpoch,
+} from "@/lib/timetableStopMoments";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
 import { getRouteShortNameFromRouteId } from "@/lib/trainRouteId";
 import { useAppContext } from "@/providers/AppProvider";
 import type { TimetableData, TimetableStop } from "@/types/train/timetable";
+import { isTimetableData } from "@/types/train/timetable";
 import styles from "./TripTimeline.module.css";
 
 type TripTimelineProps = {
@@ -168,21 +174,9 @@ const formatDelaySeconds = (value: number | null): string => {
   return `${sign}${minutes}m ${seconds}s`;
 };
 
-const getEffectiveDepartureTimestamp = (stop: TimetableStop): number | null => {
-  return effectiveStopTimeEpoch(
-    stop.realtimeDepartureTimestamp,
-    stop.scheduledDepartureTimestamp,
-    stop.departureDelaySeconds
-  );
-};
+const getEffectiveDepartureTimestamp = stopDepartureEpoch;
 
-const getEffectiveArrivalTimestamp = (stop: TimetableStop): number | null => {
-  return effectiveStopTimeEpoch(
-    stop.realtimeArrivalTimestamp,
-    stop.scheduledArrivalTimestamp,
-    stop.arrivalDelaySeconds
-  );
-};
+const getEffectiveArrivalTimestamp = stopArrivalEpoch;
 
 const hasStopCompleted = (
   stop: TimetableStop,
@@ -218,12 +212,6 @@ const getStopState = (
   if (stop.stopSequence < nextStopSequence) return "past";
   if (stop.stopSequence === nextStopSequence) return "next";
   return "future";
-};
-
-const isTimetableData = (value: unknown): value is TimetableData => {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<TimetableData>;
-  return typeof candidate.tripId === "string" && Array.isArray(candidate.stops);
 };
 
 export const TripTimeline = ({

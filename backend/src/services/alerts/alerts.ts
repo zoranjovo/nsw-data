@@ -1,8 +1,9 @@
-import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { DateTime } from "luxon";
 import type { TrainAlert } from "../../types/train/alerts";
 import { debugLog } from "../../utils/debug";
 import { tfnswClient } from "../api";
+import { fetchGtfsRealtimeFeed } from "../gtfsRealtime";
+import { ensureFreshSnapshot } from "../snapshotFetch";
 import {
   getAlertsFetchPromise,
   getAlertsSnapshotData,
@@ -16,12 +17,7 @@ const TFNSW_ALERTS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/alerts/sydney
 
 const fetchAlerts = async (): Promise<void> => {
   debugLog("ALERT", `fetch ${TFNSW_ALERTS_URL}`);
-  const { data } = await tfnswClient.get<ArrayBuffer>(TFNSW_ALERTS_URL, {
-    responseType: "arraybuffer",
-  });
-
-  const binary = new Uint8Array(data);
-  const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(binary);
+  const feed = await fetchGtfsRealtimeFeed(tfnswClient, TFNSW_ALERTS_URL);
   const alerts = toTrainAlerts(feed);
   const fetchedAt = DateTime.now().toMillis();
   setAlertsSnapshotData({
@@ -32,16 +28,10 @@ const fetchAlerts = async (): Promise<void> => {
   debugLog("ALERT", `cached alerts=${alerts.length}`);
 };
 
-export const ensureAlertsFresh = async (force = false): Promise<void> => {
-  const now = DateTime.now().toMillis();
-  const snapshot = getAlertsSnapshotData();
-  if (!force && snapshot.alerts.length > 0 && now < snapshot.expiresAt) {
-    return;
-  }
-
-  const fetchPromise = getAlertsFetchPromise();
-  if (fetchPromise) {
-    await fetchPromise;
+const fetchAlertsDeduped = async (): Promise<void> => {
+  const inflightPromise = getAlertsFetchPromise();
+  if (inflightPromise) {
+    await inflightPromise;
     return;
   }
 
@@ -66,6 +56,12 @@ export const ensureAlertsFresh = async (force = false): Promise<void> => {
     });
   setAlertsFetchPromise(nextPromise);
   await nextPromise;
+};
+
+export const ensureAlertsFresh = async (force = false): Promise<void> => {
+  await ensureFreshSnapshot(getAlertsSnapshotData, fetchAlertsDeduped, ALERTS_TTL_MS, {
+    isFresh: (snapshot, now) => !force && snapshot.alerts.length > 0 && now < snapshot.expiresAt,
+  });
 };
 
 export const getAlerts = async (): Promise<{ alerts: TrainAlert[]; fetchedAt: number | null }> => {

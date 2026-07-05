@@ -16,7 +16,7 @@ import type { StaticStop, TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition, TrainPositions } from "@/types/train/train";
 import type { TripUpdatesResponse } from "@/types/train/tripUpdates";
-import { loadTrainStaticData } from "./utils/trainDataFetch";
+import { isRateLimitedError, loadTrainStaticData } from "./utils/trainDataFetch";
 
 export type SelectedItem = {
   type: "train" | "station";
@@ -93,10 +93,6 @@ const initialStaticLoadStatus: StaticLoadStatus = {
 };
 
 const AppContext = createContext<AppState | null>(null);
-
-const isRateLimitedError = (error: unknown): boolean => {
-  return error instanceof Error && error.message === "HTTP 429";
-};
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
