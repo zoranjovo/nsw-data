@@ -12,17 +12,19 @@ import { syncTrainOverlayLayerOrder, TRAIN_POSITIONS_LAYER_ID } from "../trainMa
 const SOURCE_ID = "train-positions";
 const LAYER_ID = TRAIN_POSITIONS_LAYER_ID;
 const ICON_ID = "train-arrow";
+const DOT_ICON_ID = "train-dot";
 
 const SELECTED_ICON_ID = "train-arrow-selected";
+const SELECTED_DOT_ICON_ID = "train-dot-selected";
 
 const STALE_POSITION_SECONDS = 10 * 60;
 const TIMETABLE_PREFETCH_DEBOUNCE_MS = 200;
 const ANIMATION_FRAME_MIN_MS = 1000 / 30;
 const ICON_IMAGE = [
   "case",
-  ["==", ["get", "isSelected"], true],
-  SELECTED_ICON_ID,
-  ICON_ID,
+  ["==", ["get", "hasBearing"], false],
+  ["case", ["==", ["get", "isSelected"], true], SELECTED_DOT_ICON_ID, DOT_ICON_ID],
+  ["case", ["==", ["get", "isSelected"], true], SELECTED_ICON_ID, ICON_ID],
 ] as ExpressionSpecification;
 const ICON_ROTATE = ["coalesce", ["get", "bearing"], 0] as ExpressionSpecification;
 
@@ -47,6 +49,7 @@ const positionsToGeoJSON = (
       speed: p.speed,
       timestamp: p.timestamp,
       bearing: p.bearing ?? null,
+      hasBearing: p.bearing != null,
       isSelected: isSameTrain(p, selectedTrain),
       isStale: p.timestamp != null ? nowEpochSeconds - p.timestamp > STALE_POSITION_SECONDS : false,
     },
@@ -175,6 +178,103 @@ const createSelectedArrowImage = (size: number): ImageData => {
   return ctx.getImageData(0, 0, size, size);
 };
 
+type DotShapeOptions = {
+  shadowColor: string;
+  borderColor: string;
+  borderWidth: number;
+  /** Extra glow strokes drawn under the drop shadow (selected-state only). */
+  glowLayers?: [string, number][];
+};
+
+const drawDotShape = (
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  options: DotShapeOptions
+): void => {
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = size * 0.3;
+
+  const traceDot = () => {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.closePath();
+  };
+
+  ctx.clearRect(0, 0, size, size);
+
+  if (options.glowLayers) {
+    for (const [color, lineWidth] of options.glowLayers) {
+      traceDot();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
+  }
+
+  ctx.save();
+  ctx.translate(size * 0.04, size * 0.06);
+  ctx.fillStyle = options.shadowColor;
+  traceDot();
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  traceDot();
+  ctx.clip();
+  const bodyGrad = ctx.createLinearGradient(cx, cy - radius, cx, cy + radius);
+  bodyGrad.addColorStop(0, "rgb(218, 228, 100)");
+  bodyGrad.addColorStop(0.4, "rgb(196, 210, 45)");
+  bodyGrad.addColorStop(1, "rgb(118, 128, 28)");
+  ctx.fillStyle = bodyGrad;
+  ctx.fillRect(0, 0, size, size);
+  ctx.restore();
+
+  traceDot();
+  ctx.strokeStyle = options.borderColor;
+  ctx.lineWidth = options.borderWidth;
+  ctx.stroke();
+};
+
+const createDotImage = (size: number): ImageData => {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("2D canvas context unavailable");
+  }
+
+  drawDotShape(ctx, size, {
+    shadowColor: "rgba(0,0,0,0.22)",
+    borderColor: "rgba(255,255,255,0.95)",
+    borderWidth: Math.max(1, size * 0.03),
+  });
+
+  return ctx.getImageData(0, 0, size, size);
+};
+
+const createSelectedDotImage = (size: number): ImageData => {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context unavailable");
+
+  drawDotShape(ctx, size, {
+    shadowColor: "rgba(0,0,0,0.3)",
+    borderColor: "rgba(255,255,255,1)",
+    borderWidth: Math.max(2, size * 0.065),
+    glowLayers: [
+      ["rgba(56, 189, 248, 0.18)", size * 0.18],
+      ["rgba(56, 189, 248, 0.32)", size * 0.12],
+      ["rgba(56, 189, 248, 0.55)", size * 0.07],
+    ],
+  });
+
+  return ctx.getImageData(0, 0, size, size);
+};
+
 const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 export const TrainIcons = () => {
@@ -256,7 +356,7 @@ export const TrainIcons = () => {
         (candidate) => candidate.tripId === position.tripId
       );
       if (!timetable) {
-        return position;
+        return { ...position, bearing: null };
       }
 
       const interpolated = interpolatePosition(
@@ -266,7 +366,7 @@ export const TrainIcons = () => {
         position.routeId || timetable.routeId
       );
       if (!interpolated) {
-        return position;
+        return { ...position, bearing: null };
       }
 
       return {
@@ -300,6 +400,12 @@ export const TrainIcons = () => {
       }
       if (!map.hasImage(SELECTED_ICON_ID)) {
         map.addImage(SELECTED_ICON_ID, createSelectedArrowImage(48), { sdf: false });
+      }
+      if (!map.hasImage(DOT_ICON_ID)) {
+        map.addImage(DOT_ICON_ID, createDotImage(48), { sdf: false });
+      }
+      if (!map.hasImage(SELECTED_DOT_ICON_ID)) {
+        map.addImage(SELECTED_DOT_ICON_ID, createSelectedDotImage(48), { sdf: false });
       }
     };
 
