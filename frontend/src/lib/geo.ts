@@ -12,6 +12,40 @@ export const approxDistanceMeters = (
   return Math.hypot(dx, dy);
 };
 
+const segmentProjectionT = (
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number => {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return 0;
+  return Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+};
+
+const distanceSqAtT = (
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  t: number
+): number => (px - (ax + t * (bx - ax))) ** 2 + (py - (ay + t * (by - ay))) ** 2;
+
+export const pointToSegmentDistSq = (
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number => distanceSqAtT(px, py, ax, ay, bx, by, segmentProjectionT(px, py, ax, ay, bx, by));
+
 export type ClosestPointOnSegment = {
   t: number;
   distanceSq: number;
@@ -25,13 +59,6 @@ export const closestPointOnSegment = (
   bx: number,
   by: number
 ): ClosestPointOnSegment => {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) {
-    return { t: 0, distanceSq: (px - ax) ** 2 + (py - ay) ** 2 };
-  }
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-  const distanceSq = (px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2;
-  return { t, distanceSq };
+  const t = segmentProjectionT(px, py, ax, ay, bx, by);
+  return { t, distanceSq: distanceSqAtT(px, py, ax, ay, bx, by, t) };
 };

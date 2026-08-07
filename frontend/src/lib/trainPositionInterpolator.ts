@@ -94,9 +94,6 @@ const projectWaypointToPath = (
     const by = end.latitude * 111_000;
     const px = waypoint.longitude * 111_000 * cosLat;
     const py = waypoint.latitude * 111_000;
-    const dx = bx - ax;
-    const dy = by - ay;
-    if (dx * dx + dy * dy === 0) continue;
 
     const { t, distanceSq } = closestPointOnSegment(px, py, ax, ay, bx, by);
     const segmentDistance = end.distanceMeters - start.distanceMeters;
