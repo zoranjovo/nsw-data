@@ -2,9 +2,14 @@ import type maplibregl from "maplibre-gl";
 import type { ExpressionSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
-import { buildAnimationWaypoints, interpolatePosition } from "@/lib/trainPositionInterpolator";
+import {
+  buildTrainMotion,
+  sampleTrainMotion,
+  type TrainMotion,
+} from "@/lib/trainPositionInterpolator";
 import { useAppContext } from "@/providers/AppProvider";
-import { isTimetableData } from "@/types/train/timetable";
+import { isTimetableData, type TimetableData } from "@/types/train/timetable";
+import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
 import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
 import { syncTrainOverlayLayerOrder, TRAIN_POSITIONS_LAYER_ID } from "../trainMapLayers";
@@ -19,7 +24,16 @@ const SELECTED_DOT_ICON_ID = "train-dot-selected";
 
 const STALE_POSITION_SECONDS = 10 * 60;
 const TIMETABLE_PREFETCH_DEBOUNCE_MS = 200;
-const ANIMATION_FRAME_MIN_MS = 1000 / 30;
+
+const MIN_UPDATE_INTERVAL_MS = 1000 / 30;
+const MAX_UPDATE_INTERVAL_MS = 1000;
+const STEPPED_UPDATE_INTERVAL_MS = 1000;
+/** Meters per pixel at zoom 0 for MapLibre's 512px tile scheme. */
+const METERS_PER_PIXEL_AT_ZOOM_0 = 78_271.516;
+const TARGET_PIXEL_STEP = 0.5;
+const ASSUMED_TRAIN_SPEED_MPS = 30;
+const VIEWPORT_PADDING_RATIO = 0.25;
+
 const ICON_IMAGE = [
   "case",
   ["==", ["get", "hasBearing"], false],
@@ -28,34 +42,30 @@ const ICON_IMAGE = [
 ] as ExpressionSpecification;
 const ICON_ROTATE = ["coalesce", ["get", "bearing"], 0] as ExpressionSpecification;
 
+const ICON_SIZE_STOPS = [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  8,
+  0.3,
+  11,
+  0.6,
+  14,
+  0.95,
+  17,
+  1.4,
+] as ExpressionSpecification;
+
 const isSameTrain = (position: TrainPosition, selectedTrain: TrainPosition | null): boolean =>
   selectedTrain != null &&
   ((selectedTrain.tripId.length > 0 && position.tripId === selectedTrain.tripId) ||
     (selectedTrain.vehicleId.length > 0 && position.vehicleId === selectedTrain.vehicleId));
 
-const positionsToGeoJSON = (
-  positions: TrainPosition[],
-  nowEpochSeconds: number,
-  selectedTrain: TrainPosition | null
-): GeoJSON.FeatureCollection => {
-  const features: GeoJSON.Feature<GeoJSON.Point>[] = positions.map((p) => ({
-    type: "Feature",
-    geometry: { type: "Point", coordinates: [p.longitude, p.latitude] },
-    properties: {
-      routeId: p.routeId,
-      vehicleId: p.vehicleId,
-      vehicleLabel: p.vehicleLabel,
-      tripId: p.tripId,
-      speed: p.speed,
-      timestamp: p.timestamp,
-      bearing: p.bearing ?? null,
-      hasBearing: p.bearing != null,
-      isSelected: isSameTrain(p, selectedTrain),
-      isStale: p.timestamp != null ? nowEpochSeconds - p.timestamp > STALE_POSITION_SECONDS : false,
-    },
-  }));
-  return { type: "FeatureCollection", features };
-};
+const trainKey = (position: TrainPosition): string =>
+  position.tripId.length > 0 ? `t:${position.tripId}` : `v:${position.vehicleId}`;
+
+const motionStamp = (position: TrainPosition): string =>
+  `${position.timestamp ?? ""}|${position.latitude}|${position.longitude}`;
 
 const uniqueTripIds = (tripIds: string[]): string[] => [
   ...new Set(tripIds.filter((tripId) => tripId.trim().length > 0)),
@@ -277,6 +287,13 @@ const createSelectedDotImage = (size: number): ImageData => {
 
 const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
+type MotionCacheEntry = {
+  timetable: TimetableData;
+  tracks: TrainTracksResponse;
+  stamp: string;
+  motion: TrainMotion | null;
+};
+
 export const TrainIcons = () => {
   const map = useMapLibre();
   const {
@@ -288,17 +305,17 @@ export const TrainIcons = () => {
     trainStatic,
     cacheTimetables,
   } = useAppContext();
+
   const positionsRef = useRef<TrainPosition[]>([]);
+  const timetablesByTripIdRef = useRef<Map<string, TimetableData>>(new Map());
+  const tracksRef = useRef<TrainTracksResponse>(trainStatic.tracks);
+  const motionCacheRef = useRef<Map<string, MotionCacheEntry>>(new Map());
   const selectedItemRef = useRef(selectedItem);
+  const interpolatedRef = useRef(interpolatedTrainMovement);
   const cachedTimetableTripIdsRef = useRef<Set<string>>(new Set());
   const failedPrefetchTripIdsRef = useRef<Set<string>>(new Set());
   const inFlightTimetableTripIdsRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    cachedTimetableTripIdsRef.current = new Set(
-      trainStatic.timetables.map((timetable) => timetable.tripId)
-    );
-  }, [trainStatic.timetables]);
+  const schedulePrefetchRef = useRef<(() => void) | null>(null);
 
   const fetchAndCacheTimetables = useCallback(
     async (tripIds: string[], options?: { force?: boolean }) => {
@@ -336,59 +353,134 @@ export const TrainIcons = () => {
     [cacheTimetables]
   );
 
-  const getVisibleTrainTripIds = useCallback(() => {
-    if (!map) return [];
-    const bounds = map.getBounds();
-    return uniqueTripIds(
-      trainRealtime.positions.items
-        .filter((position) => bounds.contains([position.longitude, position.latitude]))
-        .map((position) => position.tripId)
-    );
-  }, [map, trainRealtime.positions.items]);
-
-  const getDisplayTrainPosition = useCallback(
-    (position: TrainPosition, nowEpochSeconds: number): TrainPosition => {
-      if (!interpolatedTrainMovement) {
-        return position;
-      }
-
-      const timetable = trainStatic.timetables.find(
-        (candidate) => candidate.tripId === position.tripId
-      );
-      if (!timetable) {
-        return { ...position, bearing: null };
-      }
-
-      const interpolated = interpolatePosition(
-        buildAnimationWaypoints(timetable, position),
-        nowEpochSeconds,
-        trainStatic.tracks,
-        position.routeId || timetable.routeId
-      );
-      if (!interpolated) {
-        return { ...position, bearing: null };
-      }
-
-      return {
-        ...position,
-        latitude: interpolated.latitude,
-        longitude: interpolated.longitude,
-        bearing: interpolated.bearing,
-      };
-    },
-    [interpolatedTrainMovement, trainStatic.timetables, trainStatic.tracks]
-  );
-
-  const getDisplayTrainPositions = useCallback(
-    (positions: TrainPosition[], nowEpochSeconds: number): TrainPosition[] =>
-      positions.map((position) => getDisplayTrainPosition(position, nowEpochSeconds)),
-    [getDisplayTrainPosition]
-  );
-
   const getSelectedTrain = useCallback((): TrainPosition | null => {
     const selected = selectedItemRef.current;
     return selected?.type === "train" ? (selected.data as TrainPosition) : null;
   }, []);
+
+  const getTrainMotion = useCallback((position: TrainPosition): TrainMotion | null => {
+    const timetable = timetablesByTripIdRef.current.get(position.tripId);
+    if (!timetable) return null;
+
+    const tracks = tracksRef.current;
+    const key = trainKey(position);
+    const stamp = motionStamp(position);
+    const cached = motionCacheRef.current.get(key);
+    if (
+      cached != null &&
+      cached.timetable === timetable &&
+      cached.tracks === tracks &&
+      cached.stamp === stamp
+    ) {
+      return cached.motion;
+    }
+
+    const motion = buildTrainMotion(
+      timetable,
+      position,
+      tracks,
+      position.routeId || timetable.routeId
+    );
+    motionCacheRef.current.set(key, { timetable, tracks, stamp, motion });
+    return motion;
+  }, []);
+
+  const syncPositionsData = useCallback(() => {
+    if (!map) return;
+    if (isMapRemoved(map)) return;
+    const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    const nowEpochSeconds = Date.now() / 1000;
+    const selectedTrain = getSelectedTrain();
+    const interpolate = interpolatedRef.current;
+
+    const bounds = map.getBounds();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const padX = (east - west) * VIEWPORT_PADDING_RATIO;
+    const padY = (north - south) * VIEWPORT_PADDING_RATIO;
+    const minLng = west - padX;
+    const maxLng = east + padX;
+    const minLat = south - padY;
+    const maxLat = north + padY;
+
+    const features: GeoJSON.Feature<GeoJSON.Point>[] = [];
+    for (const position of positionsRef.current) {
+      let longitude = position.longitude;
+      let latitude = position.latitude;
+      let bearing = position.bearing ?? null;
+
+      if (interpolate) {
+        const motion = getTrainMotion(position);
+        const sample = motion != null ? sampleTrainMotion(motion, nowEpochSeconds) : null;
+        if (sample != null) {
+          longitude = sample.longitude;
+          latitude = sample.latitude;
+          bearing = sample.bearing;
+        } else {
+          bearing = null;
+        }
+      }
+
+      const isSelected = isSameTrain(position, selectedTrain);
+      if (
+        !isSelected &&
+        (longitude < minLng || longitude > maxLng || latitude < minLat || latitude > maxLat)
+      ) {
+        continue;
+      }
+
+      features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [longitude, latitude] },
+        properties: {
+          routeId: position.routeId,
+          vehicleId: position.vehicleId,
+          vehicleLabel: position.vehicleLabel,
+          tripId: position.tripId,
+          speed: position.speed,
+          timestamp: position.timestamp,
+          bearing,
+          hasBearing: bearing != null,
+          isSelected,
+          isStale:
+            position.timestamp != null
+              ? nowEpochSeconds - position.timestamp > STALE_POSITION_SECONDS
+              : false,
+        },
+      });
+    }
+
+    source.setData({ type: "FeatureCollection", features });
+  }, [map, getSelectedTrain, getTrainMotion]);
+
+  useEffect(() => {
+    const byTripId = new Map<string, TimetableData>();
+    for (const timetable of trainStatic.timetables) {
+      byTripId.set(timetable.tripId, timetable);
+    }
+    timetablesByTripIdRef.current = byTripId;
+    cachedTimetableTripIdsRef.current = new Set(byTripId.keys());
+    syncPositionsData();
+  }, [trainStatic.timetables, syncPositionsData]);
+
+  useEffect(() => {
+    tracksRef.current = trainStatic.tracks;
+    syncPositionsData();
+  }, [trainStatic.tracks, syncPositionsData]);
+
+  useEffect(() => {
+    interpolatedRef.current = interpolatedTrainMovement;
+    syncPositionsData();
+  }, [interpolatedTrainMovement, syncPositionsData]);
+
+  useEffect(() => {
+    selectedItemRef.current = selectedItem;
+    syncPositionsData();
+  }, [selectedItem, syncPositionsData]);
 
   useEffect(() => {
     if (!map) return;
@@ -408,33 +500,6 @@ export const TrainIcons = () => {
         map.addImage(SELECTED_DOT_ICON_ID, createSelectedDotImage(48), { sdf: false });
       }
     };
-
-    const syncPositionsData = () => {
-      const geoSource = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
-      if (!geoSource) return;
-      const nowEpochSeconds = Date.now() / 1000;
-      geoSource.setData(
-        positionsToGeoJSON(
-          getDisplayTrainPositions(positionsRef.current, nowEpochSeconds),
-          nowEpochSeconds,
-          getSelectedTrain()
-        )
-      );
-    };
-
-    const ICON_SIZE_STOPS = [
-      "interpolate",
-      ["linear"],
-      ["zoom"],
-      8,
-      0.3,
-      11,
-      0.6,
-      14,
-      0.95,
-      17,
-      1.4,
-    ] as ExpressionSpecification;
 
     const addTrainPositionsLayer = () => {
       if (isMapRemoved(map)) return;
@@ -498,13 +563,14 @@ export const TrainIcons = () => {
         bearing: props.bearing != null ? Number(props.bearing) : null,
         speed: props.speed != null ? Number(props.speed) : null,
       };
-      if (interpolatedTrainMovement && tripId && !cachedTimetableTripIdsRef.current.has(tripId)) {
+      if (interpolatedRef.current && tripId && !cachedTimetableTripIdsRef.current.has(tripId)) {
         await fetchAndCacheTimetables([tripId], { force: true });
       }
       setSelectedItem({ type: "train", data: selectedTrain });
     };
 
     map.on("style.load", addTrainPositionsLayer);
+    map.on("moveend", syncPositionsData);
     map.on("mouseenter", LAYER_ID, onMouseEnter);
     map.on("mouseleave", LAYER_ID, onMouseLeave);
     map.on("click", LAYER_ID, onClick);
@@ -512,6 +578,7 @@ export const TrainIcons = () => {
     return () => {
       if (isMapRemoved(map)) return;
       map.off("style.load", addTrainPositionsLayer);
+      map.off("moveend", syncPositionsData);
       map.off("mouseenter", LAYER_ID, onMouseEnter);
       map.off("mouseleave", LAYER_ID, onMouseLeave);
       map.off("click", LAYER_ID, onClick);
@@ -520,72 +587,50 @@ export const TrainIcons = () => {
         map.removeSource(SOURCE_ID);
       }
     };
-  }, [
-    map,
-    setSelectedItem,
-    interpolatedTrainMovement,
-    fetchAndCacheTimetables,
-    getDisplayTrainPositions,
-    getSelectedTrain,
-  ]);
+  }, [map, setSelectedItem, fetchAndCacheTimetables, syncPositionsData]);
 
   useEffect(() => {
-    if (!map) return;
-    if (isMapRemoved(map)) return;
+    positionsRef.current = trainRealtime.positions.items;
 
-    const positions = trainRealtime.positions;
-    positionsRef.current = positions.items;
-    const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
-    if (source) {
-      const nowEpochSeconds = Date.now() / 1000;
-      source.setData(
-        positionsToGeoJSON(
-          getDisplayTrainPositions(positions.items, nowEpochSeconds),
-          nowEpochSeconds,
-          getSelectedTrain()
-        )
-      );
-      syncTrainOverlayLayerOrder(map);
+    const liveKeys = new Set(trainRealtime.positions.items.map(trainKey));
+    for (const key of motionCacheRef.current.keys()) {
+      if (!liveKeys.has(key)) {
+        motionCacheRef.current.delete(key);
+      }
     }
-  }, [map, trainRealtime.positions, getDisplayTrainPositions, getSelectedTrain]);
+
+    syncPositionsData();
+    schedulePrefetchRef.current?.();
+  }, [trainRealtime.positions, syncPositionsData]);
 
   useEffect(() => {
     if (!map) return;
     if (isMapRemoved(map)) return;
     if (!interpolatedTrainMovement) return;
 
-    const updateDisplayPositions = () => {
-      if (isMapRemoved(map)) return;
-      const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
-      if (!source) return;
-
-      const nowEpochSeconds = Date.now() / 1000;
-      source.setData(
-        positionsToGeoJSON(
-          getDisplayTrainPositions(trainRealtime.positions.items, nowEpochSeconds),
-          nowEpochSeconds,
-          getSelectedTrain()
-        )
-      );
+    // Trains move a fraction of a pixel per second when zoomed out, so redraw far less often there
+    const updateIntervalMs = (): number => {
+      if (!smoothInterpolatedTrainMovement) return STEPPED_UPDATE_INTERVAL_MS;
+      const latitudeRadians = (map.getCenter().lat * Math.PI) / 180;
+      const metersPerPixel =
+        (METERS_PER_PIXEL_AT_ZOOM_0 * Math.cos(latitudeRadians)) / 2 ** map.getZoom();
+      const intervalMs = (TARGET_PIXEL_STEP * metersPerPixel * 1000) / ASSUMED_TRAIN_SPEED_MPS;
+      return Math.min(MAX_UPDATE_INTERVAL_MS, Math.max(MIN_UPDATE_INTERVAL_MS, intervalMs));
     };
-
-    updateDisplayPositions();
-    if (!smoothInterpolatedTrainMovement) {
-      const intervalId = window.setInterval(updateDisplayPositions, 1000);
-      return () => {
-        window.clearInterval(intervalId);
-      };
-    }
 
     let frameId: number | null = null;
-    let lastFrameMs = 0;
+    let lastUpdateMs = 0;
     const animate = (frameMs: number) => {
-      if (lastFrameMs === 0 || frameMs - lastFrameMs >= ANIMATION_FRAME_MIN_MS) {
-        lastFrameMs = frameMs;
-        updateDisplayPositions();
-      }
       frameId = window.requestAnimationFrame(animate);
+      if (isMapRemoved(map)) return;
+      // Pushing geometry mid-gesture just competes with the pan/zoom the user is doing
+      if (map.isMoving()) return;
+      if (frameMs - lastUpdateMs < updateIntervalMs()) return;
+      lastUpdateMs = frameMs;
+      syncPositionsData();
     };
+
+    syncPositionsData();
     frameId = window.requestAnimationFrame(animate);
 
     return () => {
@@ -593,24 +638,27 @@ export const TrainIcons = () => {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [
-    map,
-    interpolatedTrainMovement,
-    smoothInterpolatedTrainMovement,
-    trainRealtime.positions.items,
-    getDisplayTrainPositions,
-    getSelectedTrain,
-  ]);
+  }, [map, interpolatedTrainMovement, smoothInterpolatedTrainMovement, syncPositionsData]);
 
   useEffect(() => {
     if (!map) return;
     if (isMapRemoved(map)) return;
-    if (!interpolatedTrainMovement) return;
+    if (!interpolatedTrainMovement) {
+      schedulePrefetchRef.current = null;
+      return;
+    }
 
     let timeoutId: number | null = null;
     const prefetchVisibleTimetables = () => {
       if (isMapRemoved(map)) return;
-      void fetchAndCacheTimetables(getVisibleTrainTripIds());
+      const bounds = map.getBounds();
+      void fetchAndCacheTimetables(
+        uniqueTripIds(
+          positionsRef.current
+            .filter((position) => bounds.contains([position.longitude, position.latitude]))
+            .map((position) => position.tripId)
+        )
+      );
     };
     const schedulePrefetch = () => {
       if (timeoutId != null) {
@@ -619,10 +667,12 @@ export const TrainIcons = () => {
       timeoutId = window.setTimeout(prefetchVisibleTimetables, TIMETABLE_PREFETCH_DEBOUNCE_MS);
     };
 
+    schedulePrefetchRef.current = schedulePrefetch;
     schedulePrefetch();
     map.on("moveend", schedulePrefetch);
 
     return () => {
+      schedulePrefetchRef.current = null;
       if (timeoutId != null) {
         window.clearTimeout(timeoutId);
       }
@@ -630,25 +680,7 @@ export const TrainIcons = () => {
         map.off("moveend", schedulePrefetch);
       }
     };
-  }, [map, interpolatedTrainMovement, fetchAndCacheTimetables, getVisibleTrainTripIds]);
-
-  useEffect(() => {
-    selectedItemRef.current = selectedItem;
-    if (!map) return;
-    if (isMapRemoved(map)) return;
-
-    const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
-    if (!source) return;
-
-    const nowEpochSeconds = Date.now() / 1000;
-    source.setData(
-      positionsToGeoJSON(
-        getDisplayTrainPositions(positionsRef.current, nowEpochSeconds),
-        nowEpochSeconds,
-        getSelectedTrain()
-      )
-    );
-  }, [map, selectedItem, getDisplayTrainPositions, getSelectedTrain]);
+  }, [map, interpolatedTrainMovement, fetchAndCacheTimetables]);
 
   return null;
 };
