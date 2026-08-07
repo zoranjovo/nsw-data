@@ -5,6 +5,7 @@ export type TileLayerOption = {
   name: string;
   style: string | StyleSpecification;
   attribution: string;
+  background: string;
 };
 
 export const TILE_LAYERS: TileLayerOption[] = [
@@ -12,6 +13,7 @@ export const TILE_LAYERS: TileLayerOption[] = [
     id: "dark",
     name: "Dark",
     style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+    background: "#0e0e0e",
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   },
@@ -19,6 +21,7 @@ export const TILE_LAYERS: TileLayerOption[] = [
     id: "light",
     name: "Light",
     style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+    background: "#fafaf8",
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   },
@@ -26,12 +29,14 @@ export const TILE_LAYERS: TileLayerOption[] = [
     id: "street",
     name: "Street Map",
     style: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
+    background: "#fbf8f3",
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   },
   {
     id: "satellite",
     name: "Satellite",
+    background: "#000000",
     attribution:
       "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
     style: {
