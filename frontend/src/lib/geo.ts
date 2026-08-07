@@ -1,4 +1,4 @@
-const METERS_PER_DEGREE = 111_000;
+export const METERS_PER_DEGREE = 111_000;
 
 export const approxDistanceMeters = (
   fromLatitude: number,
@@ -12,53 +12,11 @@ export const approxDistanceMeters = (
   return Math.hypot(dx, dy);
 };
 
-const segmentProjectionT = (
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): number => {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return 0;
-  return Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-};
-
-const distanceSqAtT = (
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  t: number
-): number => (px - (ax + t * (bx - ax))) ** 2 + (py - (ay + t * (by - ay))) ** 2;
-
-export const pointToSegmentDistSq = (
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): number => distanceSqAtT(px, py, ax, ay, bx, by, segmentProjectionT(px, py, ax, ay, bx, by));
-
-export type ClosestPointOnSegment = {
-  t: number;
-  distanceSq: number;
-};
-
-export const closestPointOnSegment = (
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): ClosestPointOnSegment => {
-  const t = segmentProjectionT(px, py, ax, ay, bx, by);
-  return { t, distanceSq: distanceSqAtT(px, py, ax, ay, bx, by, t) };
+export const computeBearing = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const lat1R = (lat1 * Math.PI) / 180;
+  const lat2R = (lat2 * Math.PI) / 180;
+  const y = Math.sin(dLon) * Math.cos(lat2R);
+  const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLon);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 };

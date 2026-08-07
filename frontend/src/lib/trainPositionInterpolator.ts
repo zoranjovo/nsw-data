@@ -1,6 +1,5 @@
-import { approxDistanceMeters } from "@/lib/geo";
+import { approxDistanceMeters, computeBearing, METERS_PER_DEGREE } from "@/lib/geo";
 import { stopArrivalEpoch, stopDepartureEpoch } from "@/lib/timetableStopMoments";
-import { computeBearing } from "@/lib/trainBearing";
 import type { TimetableData, TimetableStop } from "@/types/train/timetable";
 import type { TrainTrackCoordinate, TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
@@ -18,7 +17,6 @@ export type InterpolatedTrainPosition = {
   speedMetersPerSecond: number;
 };
 
-const METERS_PER_DEGREE = 111_000;
 const SEGMENTS_PER_CHUNK = 64;
 
 const isFiniteNumber = (value: number | null | undefined): value is number =>
