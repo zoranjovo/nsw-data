@@ -192,11 +192,11 @@ export const SelectionInfoPanel = () => {
 
   const routeColor = useMemo(() => {
     if (!displayedTrain) return "#6b7280";
-    const routeIdPrefix = displayedTrain.routeId?.split("_")[0] ?? "";
+    const routeIdPrefix = getRouteShortNameFromRouteId(displayedTrain.routeId) ?? "";
     const track =
       (routeIdPrefix &&
         trainStatic.tracks.features.find(
-          (f) => f.properties.route_id.split("_")[0] === routeIdPrefix
+          (f) => getRouteShortNameFromRouteId(f.properties.route_id) === routeIdPrefix
         )) ||
       (routeShortName &&
         trainStatic.tracks.features.find(

@@ -1,8 +1,8 @@
-import type maplibregl from "maplibre-gl";
 import { useEffect, useMemo } from "react";
 import { useAppContext } from "@/providers/AppProvider";
 import type { TrainStopsResponse } from "@/types/train/stops";
 import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
+import { EMPTY_GEOJSON, getGeoJSONSource } from "../MapView/mapSources";
 import {
   STATION_LABEL_MIN_ZOOM,
   syncTrainOverlayLayerOrder,
@@ -12,8 +12,6 @@ import {
 
 const SOURCE_ID = "train-stops";
 const LAYER_ID = TRAIN_STOPS_LAYER_ID;
-
-const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 const stopsToGeoJSON = (stops: TrainStopsResponse): GeoJSON.FeatureCollection => {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = stops
@@ -83,7 +81,7 @@ export const TrainStations = () => {
       });
       syncTrainOverlayLayerOrder(map);
 
-      const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+      const source = getGeoJSONSource(map, SOURCE_ID);
       if (source) {
         source.setData(geojsonData);
       }
@@ -107,14 +105,14 @@ export const TrainStations = () => {
   useEffect(() => {
     if (!map) return;
     if (isMapRemoved(map)) return;
-    const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    const source = getGeoJSONSource(map, SOURCE_ID);
     if (source) {
       source.setData(geojsonData);
       return;
     }
 
     const syncAfterStyleLoad = () => {
-      const src = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+      const src = getGeoJSONSource(map, SOURCE_ID);
       if (src) {
         src.setData(geojsonData);
       }
