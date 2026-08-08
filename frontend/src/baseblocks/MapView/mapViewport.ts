@@ -18,7 +18,7 @@ export const metersPerPixel = (map: MaplibreMap): number => {
 export const paddedVisibleBounds = (map: MaplibreMap, paddingRatio: number): VisibleBounds => {
   const bounds = map.getBounds();
   const west = bounds.getWest();
-  const east = bounds.getEast();
+  const east = bounds.getEast() < west ? bounds.getEast() + 360 : bounds.getEast();
   const south = bounds.getSouth();
   const north = bounds.getNorth();
   const padX = (east - west) * paddingRatio;
@@ -32,12 +32,15 @@ export const paddedVisibleBounds = (map: MaplibreMap, paddingRatio: number): Vis
   };
 };
 
+const longitudeWithinSpan = (bounds: VisibleBounds, longitude: number): boolean => {
+  if (bounds.maxLng - bounds.minLng >= 360) return true;
+  const offset = (((longitude - bounds.minLng) % 360) + 360) % 360;
+  return bounds.minLng + offset <= bounds.maxLng;
+};
+
 export const isWithinBounds = (
   bounds: VisibleBounds,
   longitude: number,
   latitude: number
 ): boolean =>
-  longitude >= bounds.minLng &&
-  longitude <= bounds.maxLng &&
-  latitude >= bounds.minLat &&
-  latitude <= bounds.maxLat;
+  latitude >= bounds.minLat && latitude <= bounds.maxLat && longitudeWithinSpan(bounds, longitude);

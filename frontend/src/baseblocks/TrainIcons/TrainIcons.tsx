@@ -9,7 +9,7 @@ import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
 import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
 import { getGeoJSONSource } from "../MapView/mapSources";
-import { paddedVisibleBounds } from "../MapView/mapViewport";
+import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
 import { syncTrainOverlayLayerOrder, TRAIN_POSITIONS_LAYER_ID } from "../trainMapLayers";
 import { buildTrainPositionFeatures } from "./trainPositionFeatures";
 import {
@@ -261,11 +261,11 @@ export const TrainIcons = () => {
     let timeoutId: number | null = null;
     const prefetchVisibleTimetables = () => {
       if (isMapRemoved(map)) return;
-      const bounds = map.getBounds();
+      const bounds = paddedVisibleBounds(map, VIEWPORT_PADDING_RATIO);
       void fetchAndCacheTimetables(
         uniqueTripIds(
           positionsRef.current
-            .filter((position) => bounds.contains([position.longitude, position.latitude]))
+            .filter((position) => isWithinBounds(bounds, position.longitude, position.latitude))
             .map((position) => position.tripId)
         )
       );
