@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { syncTrainOverlayLayerOrder } from "../trainMapLayers";
-import { useMapLibre } from "./MapContext";
+import { isMapRemoved, useMapLibre } from "./MapContext";
 
 const SOURCE_ID = "openfreemap-buildings";
 const LAYER_ID = "3d-buildings";
@@ -26,12 +26,11 @@ export const Buildings3D = ({ layerId }: Props) => {
 
   useEffect(() => {
     if (!map || layerId === "satellite") return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
 
     const { low, mid, high, opacity } = getThemeColors(layerId);
 
     const setDefaultBuildingVisibility = (visibility: "visible" | "none") => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       for (const id of DEFAULT_BUILDING_LAYER_IDS) {
         if (map.getLayer(id)) {
           map.setLayoutProperty(id, "visibility", visibility);
@@ -40,7 +39,7 @@ export const Buildings3D = ({ layerId }: Props) => {
     };
 
     const addBuildingsLayer = () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       setDefaultBuildingVisibility("none");
 
       if (map.getSource(SOURCE_ID)) return;
@@ -77,7 +76,7 @@ export const Buildings3D = ({ layerId }: Props) => {
       syncTrainOverlayLayerOrder(map);
     };
 
-    if (!isMapRemoved() && map.isStyleLoaded()) {
+    if (!isMapRemoved(map) && map.isStyleLoaded()) {
       addBuildingsLayer();
     } else {
       map.once("style.load", addBuildingsLayer);
@@ -85,7 +84,7 @@ export const Buildings3D = ({ layerId }: Props) => {
     map.on("style.load", addBuildingsLayer);
 
     return () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       map.off("style.load", addBuildingsLayer);
       setDefaultBuildingVisibility("visible");
       if (map.getLayer(LAYER_ID)) {

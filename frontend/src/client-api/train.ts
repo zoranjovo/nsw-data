@@ -19,58 +19,47 @@ const toRequestError = (error: unknown, fallbackMessage: string): Error => {
   return new Error(fallbackMessage);
 };
 
-export const getTrainTracks = async (): Promise<TrainTracksResponse> => {
+const request = async <T>(
+  performRequest: () => Promise<{ data: T }>,
+  fallbackMessage: string
+): Promise<T> => {
   try {
-    const response = await axios.get<TrainTracksResponse>(`${API_URL}/trains/tracks`);
+    const response = await performRequest();
     return response.data;
   } catch (error) {
-    throw toRequestError(error, "Failed to load tracks");
+    throw toRequestError(error, fallbackMessage);
   }
 };
 
-export const getTrainStops = async (): Promise<TrainStopsResponse> => {
-  try {
-    const response = await axios.get<TrainStopsResponse>(`${API_URL}/trains/stops`);
-    return response.data;
-  } catch (error) {
-    throw toRequestError(error, "Failed to load stops");
-  }
-};
+export const getTrainTracks = (): Promise<TrainTracksResponse> =>
+  request(
+    () => axios.get<TrainTracksResponse>(`${API_URL}/trains/tracks`),
+    "Failed to load tracks"
+  );
 
-export const getTrainRealtime = async (): Promise<TrainRealtimeResponse> => {
-  try {
-    const response = await axios.get<TrainRealtimeResponse>(`${API_URL}/trains/realtime`);
-    return response.data;
-  } catch (error) {
-    throw toRequestError(error, "Failed to load realtime data");
-  }
-};
+export const getTrainStops = (): Promise<TrainStopsResponse> =>
+  request(() => axios.get<TrainStopsResponse>(`${API_URL}/trains/stops`), "Failed to load stops");
 
-export const getTrainAlerts = async (): Promise<TrainAlertsResponse> => {
-  try {
-    const response = await axios.get<TrainAlertsResponse>(`${API_URL}/trains/alerts`);
-    return response.data;
-  } catch (error) {
-    throw toRequestError(error, "Failed to load alerts");
-  }
-};
+export const getTrainRealtime = (): Promise<TrainRealtimeResponse> =>
+  request(
+    () => axios.get<TrainRealtimeResponse>(`${API_URL}/trains/realtime`),
+    "Failed to load realtime data"
+  );
 
-export const getTrainTimetable = async (tripId: string): Promise<TimetableData> => {
-  try {
-    const response = await axios.get<TimetableData>(`${API_URL}/trains/timetable/${tripId}`);
-    return response.data;
-  } catch (error) {
-    throw toRequestError(error, "Failed to load timetable data");
-  }
-};
+export const getTrainAlerts = (): Promise<TrainAlertsResponse> =>
+  request(
+    () => axios.get<TrainAlertsResponse>(`${API_URL}/trains/alerts`),
+    "Failed to load alerts"
+  );
 
-export const getTrainTimetableBulk = async (tripIds: string[]): Promise<TimetableData[]> => {
-  try {
-    const response = await axios.post<TimetableData[]>(`${API_URL}/trains/timetable/bulk`, {
-      tripIds,
-    });
-    return response.data;
-  } catch (error) {
-    throw toRequestError(error, "Failed to load timetable data");
-  }
-};
+export const getTrainTimetable = (tripId: string): Promise<TimetableData> =>
+  request(
+    () => axios.get<TimetableData>(`${API_URL}/trains/timetable/${tripId}`),
+    "Failed to load timetable data"
+  );
+
+export const getTrainTimetableBulk = (tripIds: string[]): Promise<TimetableData[]> =>
+  request(
+    () => axios.post<TimetableData[]>(`${API_URL}/trains/timetable/bulk`, { tripIds }),
+    "Failed to load timetable data"
+  );

@@ -1,8 +1,5 @@
-export type TrainStop = {
-  stopId: string;
-  stopName: string | null;
-  latitude: number | null;
-  longitude: number | null;
-};
+import type { StaticStop } from "./timetable";
+
+export type TrainStop = StaticStop;
 
 export type TrainStopsResponse = TrainStop[];

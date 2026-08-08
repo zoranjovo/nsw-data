@@ -5,7 +5,7 @@ import type { StaticLoadStatus, TrainStaticState } from "../AppProvider";
 type SetTrainStatic = Dispatch<SetStateAction<TrainStaticState>>;
 type SetStaticLoadStatus = Dispatch<SetStateAction<StaticLoadStatus>>;
 
-const isRateLimitedError = (error: unknown): boolean => {
+export const isRateLimitedError = (error: unknown): boolean => {
   return error instanceof Error && error.message === "HTTP 429";
 };
 

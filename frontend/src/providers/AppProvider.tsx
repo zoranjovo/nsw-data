@@ -11,12 +11,13 @@ import {
 } from "react";
 import { useLocation } from "react-router-dom";
 import { startRealtimePolling, stopRealtimePolling } from "@/fetch/runtime";
+import { loadTrainMovementSettings, saveTrainMovementSettings } from "@/lib/localStorage";
 import type { TrainStopsResponse } from "@/types/train/stops";
 import type { StaticStop, TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition, TrainPositions } from "@/types/train/train";
 import type { TripUpdatesResponse } from "@/types/train/tripUpdates";
-import { loadTrainStaticData } from "./utils/trainDataFetch";
+import { isRateLimitedError, loadTrainStaticData } from "./utils/trainDataFetch";
 
 export type SelectedItem = {
   type: "train" | "station";
@@ -94,21 +95,26 @@ const initialStaticLoadStatus: StaticLoadStatus = {
 
 const AppContext = createContext<AppState | null>(null);
 
-const isRateLimitedError = (error: unknown): boolean => {
-  return error instanceof Error && error.message === "HTTP 429";
-};
-
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
   const currentPage = location.pathname.replace(/^\//, "") || "trains";
   const [mapReady, setMapReady] = useState(false);
-  const [interpolatedTrainMovement, setInterpolatedTrainMovement] = useState(true);
-  const [smoothInterpolatedTrainMovement, setSmoothInterpolatedTrainMovement] = useState(false);
+  const [storedTrainMovementSettings] = useState(loadTrainMovementSettings);
+  const [interpolatedTrainMovement, setInterpolatedTrainMovement] = useState(
+    storedTrainMovementSettings.interpolatedTrainMovement
+  );
+  const [smoothInterpolatedTrainMovement, setSmoothInterpolatedTrainMovement] = useState(
+    storedTrainMovementSettings.smoothInterpolatedTrainMovement
+  );
   const [selectedItem, setSelectedItem] = useState<SelectedItem>(null);
   const [trainRealtime, setTrainRealtime] = useState<TrainRealtimeState>(initialTrainRealtime);
   const [trainStatic, setTrainStatic] = useState<TrainStaticState>(initialTrainStatic);
   const [staticLoadStatus, setStaticLoadStatus] =
     useState<StaticLoadStatus>(initialStaticLoadStatus);
+
+  useEffect(() => {
+    saveTrainMovementSettings({ interpolatedTrainMovement, smoothInterpolatedTrainMovement });
+  }, [interpolatedTrainMovement, smoothInterpolatedTrainMovement]);
 
   useEffect(() => {
     if (currentPage !== "trains") {

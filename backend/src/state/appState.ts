@@ -42,9 +42,8 @@ const slowTick = () => {
         await loadStaticTimetableFromAssets(true);
       }
     } catch (error) {
-      debugLog(
-        "STATIC",
-        `daily static refresh failed: ${error instanceof Error ? error.message : String(error)}`
+      console.error(
+        `Daily static refresh failed, keeping previous timetable assets: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   })();

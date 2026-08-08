@@ -1,39 +1,30 @@
 import type { ExpressionSpecification } from "maplibre-gl";
 import { useEffect } from "react";
+import {
+  ROUTE_COLOR_FALLBACK_BY_SHORT_NAME,
+  ROUTE_COLOR_FALLBACK_DEFAULT,
+} from "@/lib/trainRouteColors";
 import { useAppContext } from "@/providers/AppProvider";
-import { useMapLibre } from "../MapView/MapContext";
+import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
 import { syncTrainOverlayLayerOrder, TRAIN_TRACKS_LAYER_ID } from "../trainMapLayers";
 
 const SOURCE_ID = "train-tracks";
 const LAYER_ID = TRAIN_TRACKS_LAYER_ID;
 
+// Built from ROUTE_COLOR_FALLBACK_BY_SHORT_NAME so the fallback palette can't drift
+// from the one used by resolveTrainLineColor().
+const ROUTE_COLOR_MATCH_EXPRESSION = [
+  "match",
+  ["get", "route_short_name"],
+  ...Object.entries(ROUTE_COLOR_FALLBACK_BY_SHORT_NAME).flat(),
+  ROUTE_COLOR_FALLBACK_DEFAULT,
+] as unknown as ExpressionSpecification;
+
 const LINE_COLOR_EXPRESSION: ExpressionSpecification = [
   "case",
   ["has", "route_color"],
   ["concat", "#", ["get", "route_color"]],
-  [
-    "match",
-    ["get", "route_short_name"],
-    "T1",
-    "#F99D1C",
-    "T2",
-    "#00A651",
-    "T3",
-    "#8B4513",
-    "T4",
-    "#F26522",
-    "T5",
-    "#E4002B",
-    "T6",
-    "#00A3E0",
-    "T7",
-    "#00B5AD",
-    "T8",
-    "#E4007C",
-    "T9",
-    "#6C3F97",
-    "#999999",
-  ],
+  ROUTE_COLOR_MATCH_EXPRESSION,
 ];
 
 export const TrainLines = () => {
@@ -43,10 +34,9 @@ export const TrainLines = () => {
   useEffect(() => {
     if (!map) return;
     if (!trainStatic.tracks || trainStatic.tracks.features.length === 0) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
 
     const addTrainLayer = () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       if (map.getSource(SOURCE_ID)) return;
       map.addSource(SOURCE_ID, {
         type: "geojson",
@@ -68,7 +58,7 @@ export const TrainLines = () => {
     map.on("style.load", addTrainLayer);
 
     return () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       map.off("style.load", addTrainLayer);
       if (map.getSource(SOURCE_ID)) {
         map.removeLayer(LAYER_ID);

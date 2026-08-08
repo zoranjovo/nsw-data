@@ -1,4 +1,4 @@
-import { Layers } from "lucide-react";
+import { Check, Layers, Mountain } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import styles from "./MapView.module.css";
 import type { TileLayerOption } from "./tileLayers";
@@ -7,12 +7,20 @@ type Props = {
   layers: TileLayerOption[];
   selected: TileLayerOption;
   onChange: (layer: TileLayerOption) => void;
+  terrainEnabled: boolean;
+  onTerrainChange: (enabled: boolean) => void;
 };
 
-export const TileLayerSelector = ({ layers, selected, onChange }: Props) => {
+export const TileLayerSelector = ({
+  layers,
+  selected,
+  onChange,
+  terrainEnabled,
+  onTerrainChange,
+}: Props) => {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
-  const listboxId = useId();
+  const panelId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -37,34 +45,41 @@ export const TileLayerSelector = ({ layers, selected, onChange }: Props) => {
         onClick={() => setOpen((o) => !o)}
         title="Select map layer"
         aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={open ? listboxId : undefined}
+        aria-haspopup="true"
+        aria-controls={open ? panelId : undefined}
       >
         <Layers size={18} />
       </button>
       {open && (
-        <div
-          ref={panelRef}
-          id={listboxId}
-          className={styles.layerPanel}
-          role="listbox"
-          aria-label="Map basemap"
-        >
-          {layers.map((layer) => (
-            <button
-              key={layer.id}
-              type="button"
-              role="option"
-              aria-selected={layer.id === selected.id}
-              className={styles.layerOption}
-              onClick={() => {
-                onChange(layer);
-                setOpen(false);
-              }}
-            >
-              {layer.name}
-            </button>
-          ))}
+        <div ref={panelRef} id={panelId} className={styles.layerPanel}>
+          <div role="listbox" aria-label="Map basemap">
+            {layers.map((layer) => (
+              <button
+                key={layer.id}
+                type="button"
+                role="option"
+                aria-selected={layer.id === selected.id}
+                className={styles.layerOption}
+                onClick={() => {
+                  onChange(layer);
+                  setOpen(false);
+                }}
+              >
+                {layer.name}
+              </button>
+            ))}
+          </div>
+          <div className={styles.layerDivider} />
+          <button
+            type="button"
+            className={styles.layerToggle}
+            aria-pressed={terrainEnabled}
+            onClick={() => onTerrainChange(!terrainEnabled)}
+          >
+            <Mountain size={14} className={styles.layerToggleIcon} />
+            <span className={styles.layerToggleLabel}>3D terrain</span>
+            {terrainEnabled && <Check size={14} className={styles.layerToggleCheck} />}
+          </button>
         </div>
       )}
     </div>

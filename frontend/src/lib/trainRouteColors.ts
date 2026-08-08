@@ -10,7 +10,7 @@ export const ROUTE_COLOR_FALLBACK_BY_SHORT_NAME: Record<string, string> = {
   T9: "#6C3F97",
 };
 
-const FALLBACK_DEFAULT = "#999999";
+export const ROUTE_COLOR_FALLBACK_DEFAULT = "#999999";
 
 export const normaliseRouteHexColor = (value: string | null | undefined): string | null => {
   if (!value) return null;
@@ -22,5 +22,5 @@ export const normaliseRouteHexColor = (value: string | null | undefined): string
 export const resolveTrainLineColor = (routeShortName: string, routeColorGtfs: string): string => {
   const fromGtfs = normaliseRouteHexColor(routeColorGtfs);
   if (fromGtfs) return fromGtfs;
-  return ROUTE_COLOR_FALLBACK_BY_SHORT_NAME[routeShortName] ?? FALLBACK_DEFAULT;
+  return ROUTE_COLOR_FALLBACK_BY_SHORT_NAME[routeShortName] ?? ROUTE_COLOR_FALLBACK_DEFAULT;
 };

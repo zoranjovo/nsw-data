@@ -87,8 +87,6 @@ const buildSnapshotFromAssets = async (assetsDir: string): Promise<StaticTimetab
   const routesById = new Map<string, StaticRoute>();
   const tripsById = new Map<string, StaticTrip>();
   const stopTimesByTripId = new Map<string, StaticStopTime[]>();
-  const tripIdsByRouteId = new Map<string, string[]>();
-  const tripIdsByStopId = new Map<string, string[]>();
 
   const routesCount = await streamAssetArray<StaticRoute>(assetsDir, "routes.json", (rawRoute) => {
     const routeId = normalizeString(rawRoute.routeId);
@@ -116,13 +114,6 @@ const buildSnapshotFromAssets = async (assetsDir: string): Promise<StaticTimetab
       serviceId: normalizeString(rawTrip.serviceId),
       tripHeadsign: normalizeString(rawTrip.tripHeadsign),
     });
-
-    const tripIdsForRoute = tripIdsByRouteId.get(routeId);
-    if (tripIdsForRoute) {
-      tripIdsForRoute.push(tripId);
-    } else {
-      tripIdsByRouteId.set(routeId, [tripId]);
-    }
   });
 
   const stopTimesCount = await streamAssetArray<StaticStopTime>(
@@ -151,13 +142,6 @@ const buildSnapshotFromAssets = async (assetsDir: string): Promise<StaticTimetab
         stopTimesForTrip.push(stopTime);
       } else {
         stopTimesByTripId.set(tripId, [stopTime]);
-      }
-
-      const tripIdsForStop = tripIdsByStopId.get(stopId);
-      if (tripIdsForStop) {
-        tripIdsForStop.push(tripId);
-      } else {
-        tripIdsByStopId.set(stopId, [tripId]);
       }
     }
   );
@@ -191,8 +175,6 @@ const buildSnapshotFromAssets = async (assetsDir: string): Promise<StaticTimetab
     routesById,
     tripsById,
     stopTimesByTripId,
-    tripIdsByRouteId,
-    tripIdsByStopId,
     fetchedAt,
   };
 };

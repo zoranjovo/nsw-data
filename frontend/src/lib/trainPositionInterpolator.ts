@@ -1,5 +1,5 @@
-import { effectiveStopTimeEpoch } from "@/lib/timetableStopMoments";
-import { computeBearing } from "@/lib/trainBearing";
+import { approxDistanceMeters, computeBearing, METERS_PER_DEGREE } from "@/lib/geo";
+import { stopArrivalEpoch, stopDepartureEpoch } from "@/lib/timetableStopMoments";
 import type { TimetableData, TimetableStop } from "@/types/train/timetable";
 import type { TrainTrackCoordinate, TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
@@ -17,42 +17,33 @@ export type InterpolatedTrainPosition = {
   speedMetersPerSecond: number;
 };
 
+const SEGMENTS_PER_CHUNK = 64;
+
 const isFiniteNumber = (value: number | null | undefined): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
-type TrackPoint = {
-  longitude: number;
-  latitude: number;
-  distanceMeters: number;
-};
-
 type TrackPath = {
-  points: TrackPoint[];
+  lons: Float64Array;
+  lats: Float64Array;
+  dists: Float64Array;
+  xs: Float64Array;
+  ys: Float64Array;
+  cosLat: number;
+  chunkMinX: Float64Array;
+  chunkMinY: Float64Array;
+  chunkMaxX: Float64Array;
+  chunkMaxY: Float64Array;
+  chunkDistSq: Float64Array;
 };
 
-type ProjectedWaypoint = {
-  epochSeconds: number;
-  distanceMeters: number;
+/** Precomputed geometry for one trip, sampled cheaply on every animation frame. */
+export type TrainMotion = {
+  times: Float64Array;
+  path: TrackPath | null;
+  distances: Float64Array | null;
+  latitudes: Float64Array | null;
+  longitudes: Float64Array | null;
 };
-
-type TrackProjection = {
-  distanceMeters: number;
-  distanceSq: number;
-};
-
-const stopArrivalEpoch = (stop: TimetableStop): number | null =>
-  effectiveStopTimeEpoch(
-    stop.realtimeArrivalTimestamp,
-    stop.scheduledArrivalTimestamp,
-    stop.arrivalDelaySeconds
-  );
-
-const stopDepartureEpoch = (stop: TimetableStop): number | null =>
-  effectiveStopTimeEpoch(
-    stop.realtimeDepartureTimestamp,
-    stop.scheduledDepartureTimestamp,
-    stop.departureDelaySeconds
-  );
 
 const stopEpochs = (stop: TimetableStop): number[] => [
   ...new Set([stopArrivalEpoch(stop), stopDepartureEpoch(stop)].filter(isFiniteNumber)),
@@ -66,112 +57,188 @@ const isDuringStationDwell = (stop: TimetableStop, epochSeconds: number): boolea
   );
 };
 
-const approxDistanceMeters = (
-  fromLatitude: number,
-  fromLongitude: number,
-  toLatitude: number,
-  toLongitude: number
-): number => {
-  const dy = (toLatitude - fromLatitude) * 111_000;
-  const cosLat = Math.cos((fromLatitude * Math.PI) / 180);
-  const dx = (toLongitude - fromLongitude) * 111_000 * cosLat;
-  return Math.hypot(dx, dy);
-};
-
 const buildTrackPath = (coordinates: TrainTrackCoordinate[]): TrackPath | null => {
-  if (coordinates.length < 2) {
+  const pointCount = coordinates.length;
+  if (pointCount < 2) {
     return null;
   }
 
-  const points: TrackPoint[] = [];
-  let distanceMeters = 0;
+  const lons = new Float64Array(pointCount);
+  const lats = new Float64Array(pointCount);
+  const dists = new Float64Array(pointCount);
+  const xs = new Float64Array(pointCount);
+  const ys = new Float64Array(pointCount);
 
-  for (let index = 0; index < coordinates.length; index++) {
+  let cumulativeMeters = 0;
+  let latitudeSum = 0;
+  for (let index = 0; index < pointCount; index++) {
     const [longitude, latitude] = coordinates[index];
     if (index > 0) {
-      const previous = points[index - 1];
-      distanceMeters += approxDistanceMeters(
-        previous.latitude,
-        previous.longitude,
+      cumulativeMeters += approxDistanceMeters(
+        lats[index - 1],
+        lons[index - 1],
         latitude,
         longitude
       );
     }
-    points.push({ longitude, latitude, distanceMeters });
+    lons[index] = longitude;
+    lats[index] = latitude;
+    dists[index] = cumulativeMeters;
+    latitudeSum += latitude;
   }
 
-  return { points };
+  // One shared projection origin keeps segment comparisons consistent along the path
+  const cosLat = Math.cos(((latitudeSum / pointCount) * Math.PI) / 180);
+  for (let index = 0; index < pointCount; index++) {
+    xs[index] = lons[index] * METERS_PER_DEGREE * cosLat;
+    ys[index] = lats[index] * METERS_PER_DEGREE;
+  }
+
+  const chunkCount = Math.ceil((pointCount - 1) / SEGMENTS_PER_CHUNK);
+  const chunkMinX = new Float64Array(chunkCount);
+  const chunkMinY = new Float64Array(chunkCount);
+  const chunkMaxX = new Float64Array(chunkCount);
+  const chunkMaxY = new Float64Array(chunkCount);
+
+  for (let chunk = 0; chunk < chunkCount; chunk++) {
+    const startIndex = chunk * SEGMENTS_PER_CHUNK;
+    const endIndex = Math.min(pointCount - 1, startIndex + SEGMENTS_PER_CHUNK);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let index = startIndex; index <= endIndex; index++) {
+      const x = xs[index];
+      const y = ys[index];
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    chunkMinX[chunk] = minX;
+    chunkMinY[chunk] = minY;
+    chunkMaxX[chunk] = maxX;
+    chunkMaxY[chunk] = maxY;
+  }
+
+  return {
+    lons,
+    lats,
+    dists,
+    xs,
+    ys,
+    cosLat,
+    chunkMinX,
+    chunkMinY,
+    chunkMaxX,
+    chunkMaxY,
+    chunkDistSq: new Float64Array(chunkCount),
+  };
 };
 
-const projectWaypointToPath = (
+const trackPathsByResponse = new WeakMap<TrainTracksResponse, Map<string, TrackPath[]>>();
+
+const routeTrackPaths = (tracks: TrainTracksResponse, routeId: string): TrackPath[] => {
+  let byRouteId = trackPathsByResponse.get(tracks);
+  if (!byRouteId) {
+    byRouteId = new Map();
+    trackPathsByResponse.set(tracks, byRouteId);
+  }
+
+  const cached = byRouteId.get(routeId);
+  if (cached) {
+    return cached;
+  }
+
+  const paths: TrackPath[] = [];
+  for (const feature of tracks.features) {
+    if (feature.properties.route_id !== routeId) continue;
+    const path = buildTrackPath(feature.geometry.coordinates);
+    if (path != null) {
+      paths.push(path);
+    }
+  }
+  byRouteId.set(routeId, paths);
+  return paths;
+};
+
+let projectedDistanceMeters = 0;
+let projectedDistanceSq = 0;
+
+const scanChunkForProjection = (
   path: TrackPath,
-  waypoint: Pick<TrainAnimationWaypoint, "latitude" | "longitude">
-): TrackProjection | null => {
-  let bestProjection: TrackProjection | null = null;
+  chunkIndex: number,
+  px: number,
+  py: number
+): void => {
+  const startIndex = chunkIndex * SEGMENTS_PER_CHUNK;
+  const endIndex = Math.min(path.lons.length - 1, startIndex + SEGMENTS_PER_CHUNK);
 
-  for (let index = 0; index < path.points.length - 1; index++) {
-    const start = path.points[index];
-    const end = path.points[index + 1];
-    const cosLat = Math.cos((waypoint.latitude * Math.PI) / 180);
-    const ax = start.longitude * 111_000 * cosLat;
-    const ay = start.latitude * 111_000;
-    const bx = end.longitude * 111_000 * cosLat;
-    const by = end.latitude * 111_000;
-    const px = waypoint.longitude * 111_000 * cosLat;
-    const py = waypoint.latitude * 111_000;
-    const dx = bx - ax;
-    const dy = by - ay;
-    const segmentLengthSq = dx * dx + dy * dy;
-    if (segmentLengthSq === 0) continue;
-
-    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / segmentLengthSq));
-    const distanceSq = (px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2;
-    const segmentDistance = end.distanceMeters - start.distanceMeters;
-    const distanceMeters = start.distanceMeters + segmentDistance * t;
-
-    if (bestProjection == null || distanceSq < bestProjection.distanceSq) {
-      bestProjection = { distanceMeters, distanceSq };
+  for (let index = startIndex; index < endIndex; index++) {
+    const ax = path.xs[index];
+    const ay = path.ys[index];
+    const dx = path.xs[index + 1] - ax;
+    const dy = path.ys[index + 1] - ay;
+    const lengthSq = dx * dx + dy * dy;
+    let t = lengthSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lengthSq;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const offsetX = px - (ax + t * dx);
+    const offsetY = py - (ay + t * dy);
+    const distanceSq = offsetX * offsetX + offsetY * offsetY;
+    if (distanceSq < projectedDistanceSq) {
+      projectedDistanceSq = distanceSq;
+      projectedDistanceMeters = path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t;
     }
   }
-
-  return bestProjection;
 };
 
-const selectRouteTrackPath = (
-  tracks: TrainTracksResponse,
-  routeId: string,
-  waypoints: TrainAnimationWaypoint[]
-): TrackPath | null => {
-  const routePaths = tracks.features
-    .filter((feature) => feature.properties.route_id === routeId)
-    .map((feature) => buildTrackPath(feature.geometry.coordinates))
-    .filter((path): path is TrackPath => path != null);
+/** Writes the nearest-point result into projectedDistanceMeters / projectedDistanceSq. */
+const projectOntoPath = (path: TrackPath, latitude: number, longitude: number): void => {
+  const px = longitude * METERS_PER_DEGREE * path.cosLat;
+  const py = latitude * METERS_PER_DEGREE;
+  const chunkCount = path.chunkDistSq.length;
 
-  if (routePaths.length === 0) {
-    return null;
-  }
-
-  const scoringWaypoints = waypoints.length > 0 ? waypoints : [];
-  if (scoringWaypoints.length === 0) {
-    return routePaths[0];
-  }
-
-  let bestPath = routePaths[0];
-  let bestScore = Infinity;
-
-  for (const path of routePaths) {
-    const score = scoringWaypoints.reduce((total, waypoint) => {
-      const projection = projectWaypointToPath(path, waypoint);
-      return total + (projection?.distanceSq ?? Number.MAX_SAFE_INTEGER);
-    }, 0);
-
-    if (score < bestScore) {
-      bestPath = path;
-      bestScore = score;
+  let nearestChunk = 0;
+  let nearestChunkDistSq = Infinity;
+  for (let chunk = 0; chunk < chunkCount; chunk++) {
+    const minX = path.chunkMinX[chunk];
+    const maxX = path.chunkMaxX[chunk];
+    const minY = path.chunkMinY[chunk];
+    const maxY = path.chunkMaxY[chunk];
+    const gapX = px < minX ? minX - px : px > maxX ? px - maxX : 0;
+    const gapY = py < minY ? minY - py : py > maxY ? py - maxY : 0;
+    const distanceSq = gapX * gapX + gapY * gapY;
+    path.chunkDistSq[chunk] = distanceSq;
+    if (distanceSq < nearestChunkDistSq) {
+      nearestChunkDistSq = distanceSq;
+      nearestChunk = chunk;
     }
   }
 
-  return bestPath;
+  projectedDistanceMeters = 0;
+  projectedDistanceSq = Infinity;
+  scanChunkForProjection(path, nearestChunk, px, py);
+
+  // Bounding boxes only prune, so any chunk that could still win is scanned exactly
+  for (let chunk = 0; chunk < chunkCount; chunk++) {
+    if (chunk === nearestChunk) continue;
+    if (path.chunkDistSq[chunk] >= projectedDistanceSq) continue;
+    scanChunkForProjection(path, chunk, px, py);
+  }
+};
+
+const firstIndexAtOrAfter = (values: Float64Array, target: number): number => {
+  let low = 0;
+  let high = values.length - 1;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (values[mid] >= target) {
+      high = mid;
+    } else {
+      low = mid + 1;
+    }
+  }
+  return low;
 };
 
 const samplePathAtDistance = (
@@ -180,56 +247,63 @@ const samplePathAtDistance = (
   directionMeters: number,
   speedMetersPerSecond: number
 ): InterpolatedTrainPosition | null => {
-  if (path.points.length === 0) {
+  const pointCount = path.lons.length;
+  if (pointCount === 0) {
     return null;
   }
 
-  if (path.points.length === 1 || distanceMeters <= path.points[0].distanceMeters) {
-    const first = path.points[0];
-    const next = path.points[1] ?? first;
-    const bearing = computeBearing(first.latitude, first.longitude, next.latitude, next.longitude);
+  const orient = (bearing: number): number =>
+    directionMeters < 0 ? (bearing + 180) % 360 : bearing;
+
+  if (pointCount === 1 || distanceMeters <= path.dists[0]) {
+    const nextIndex = pointCount > 1 ? 1 : 0;
     return {
-      latitude: first.latitude,
-      longitude: first.longitude,
-      bearing: directionMeters < 0 ? (bearing + 180) % 360 : bearing,
+      latitude: path.lats[0],
+      longitude: path.lons[0],
+      bearing: orient(
+        computeBearing(path.lats[0], path.lons[0], path.lats[nextIndex], path.lons[nextIndex])
+      ),
       speedMetersPerSecond,
     };
   }
 
-  const last = path.points[path.points.length - 1];
-  if (distanceMeters >= last.distanceMeters) {
-    const previous = path.points[path.points.length - 2] ?? last;
-    const bearing = computeBearing(
-      previous.latitude,
-      previous.longitude,
-      last.latitude,
-      last.longitude
-    );
+  const lastIndex = pointCount - 1;
+  if (distanceMeters >= path.dists[lastIndex]) {
+    const previousIndex = lastIndex - 1;
     return {
-      latitude: last.latitude,
-      longitude: last.longitude,
-      bearing: directionMeters < 0 ? (bearing + 180) % 360 : bearing,
+      latitude: path.lats[lastIndex],
+      longitude: path.lons[lastIndex],
+      bearing: orient(
+        computeBearing(
+          path.lats[previousIndex],
+          path.lons[previousIndex],
+          path.lats[lastIndex],
+          path.lons[lastIndex]
+        )
+      ),
       speedMetersPerSecond,
     };
   }
 
-  const nextIndex = path.points.findIndex((point) => point.distanceMeters >= distanceMeters);
-  const next = path.points[nextIndex];
-  const previous = path.points[nextIndex - 1];
-  const segmentDistance = next.distanceMeters - previous.distanceMeters;
+  const nextIndex = Math.max(1, firstIndexAtOrAfter(path.dists, distanceMeters));
+  const previousIndex = nextIndex - 1;
+  const segmentMeters = path.dists[nextIndex] - path.dists[previousIndex];
   const progress =
-    segmentDistance > 0 ? (distanceMeters - previous.distanceMeters) / segmentDistance : 0;
-  const bearing = computeBearing(
-    previous.latitude,
-    previous.longitude,
-    next.latitude,
-    next.longitude
-  );
+    segmentMeters > 0 ? (distanceMeters - path.dists[previousIndex]) / segmentMeters : 0;
 
   return {
-    latitude: previous.latitude + (next.latitude - previous.latitude) * progress,
-    longitude: previous.longitude + (next.longitude - previous.longitude) * progress,
-    bearing: directionMeters < 0 ? (bearing + 180) % 360 : bearing,
+    latitude:
+      path.lats[previousIndex] + (path.lats[nextIndex] - path.lats[previousIndex]) * progress,
+    longitude:
+      path.lons[previousIndex] + (path.lons[nextIndex] - path.lons[previousIndex]) * progress,
+    bearing: orient(
+      computeBearing(
+        path.lats[previousIndex],
+        path.lons[previousIndex],
+        path.lats[nextIndex],
+        path.lons[nextIndex]
+      )
+    ),
     speedMetersPerSecond,
   };
 };
@@ -277,10 +351,9 @@ export const buildAnimationWaypoints = (
         latitude: gpsPosition.latitude,
         longitude: gpsPosition.longitude,
       });
+      stopWaypoints.sort((a, b) => a.epochSeconds - b.epochSeconds);
     }
   }
-
-  stopWaypoints.sort((a, b) => a.epochSeconds - b.epochSeconds);
 
   return stopWaypoints.filter(
     (waypoint, index, waypoints) =>
@@ -288,144 +361,205 @@ export const buildAnimationWaypoints = (
   );
 };
 
-export const interpolatePosition = (
+const buildTrackMotion = (
   waypoints: TrainAnimationWaypoint[],
-  nowEpochSeconds: number,
+  tracks: TrainTracksResponse,
+  routeId: string
+): TrainMotion | null => {
+  const paths = routeTrackPaths(tracks, routeId);
+  if (paths.length === 0) {
+    return null;
+  }
+
+  const waypointCount = waypoints.length;
+  let bestPath: TrackPath | null = null;
+  let bestDistances: Float64Array | null = null;
+  let bestScore = Infinity;
+
+  for (const path of paths) {
+    const distances = new Float64Array(waypointCount);
+    let score = 0;
+    for (let index = 0; index < waypointCount; index++) {
+      projectOntoPath(path, waypoints[index].latitude, waypoints[index].longitude);
+      distances[index] = projectedDistanceMeters;
+      score += projectedDistanceSq;
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      bestPath = path;
+      bestDistances = distances;
+    }
+  }
+
+  if (bestPath == null || bestDistances == null) {
+    return null;
+  }
+
+  const times = new Float64Array(waypointCount);
+  for (let index = 0; index < waypointCount; index++) {
+    times[index] = waypoints[index].epochSeconds;
+  }
+
+  return { times, path: bestPath, distances: bestDistances, latitudes: null, longitudes: null };
+};
+
+export const buildTrainMotion = (
+  timetable: TimetableData,
+  gpsPosition: TrainPosition | null,
   tracks?: TrainTracksResponse,
   routeId?: string
-): InterpolatedTrainPosition | null => {
+): TrainMotion | null => {
+  const waypoints = buildAnimationWaypoints(timetable, gpsPosition);
   if (waypoints.length === 0) {
     return null;
   }
 
-  if (tracks != null && routeId != null) {
-    const trackPosition = interpolatePositionAlongTrack(
-      waypoints,
-      nowEpochSeconds,
-      tracks,
-      routeId
-    );
-    if (trackPosition != null) {
-      return trackPosition;
+  if (tracks != null && routeId != null && routeId.length > 0) {
+    const trackMotion = buildTrackMotion(waypoints, tracks, routeId);
+    if (trackMotion != null) {
+      return trackMotion;
     }
   }
 
-  if (waypoints.length === 1 || nowEpochSeconds <= waypoints[0].epochSeconds) {
-    const first = waypoints[0];
-    const next = waypoints[1] ?? first;
-    return {
-      latitude: first.latitude,
-      longitude: first.longitude,
-      bearing: computeBearing(first.latitude, first.longitude, next.latitude, next.longitude),
-      speedMetersPerSecond: 0,
-    };
+  const waypointCount = waypoints.length;
+  const times = new Float64Array(waypointCount);
+  const latitudes = new Float64Array(waypointCount);
+  const longitudes = new Float64Array(waypointCount);
+  for (let index = 0; index < waypointCount; index++) {
+    times[index] = waypoints[index].epochSeconds;
+    latitudes[index] = waypoints[index].latitude;
+    longitudes[index] = waypoints[index].longitude;
   }
 
-  const last = waypoints[waypoints.length - 1];
-  if (nowEpochSeconds >= last.epochSeconds) {
-    const previous = waypoints[waypoints.length - 2] ?? last;
-    return {
-      latitude: last.latitude,
-      longitude: last.longitude,
-      bearing: computeBearing(previous.latitude, previous.longitude, last.latitude, last.longitude),
-      speedMetersPerSecond: 0,
-    };
-  }
-
-  const nextIndex = waypoints.findIndex((waypoint) => waypoint.epochSeconds >= nowEpochSeconds);
-  const next = waypoints[nextIndex];
-  const previous = waypoints[nextIndex - 1];
-  const durationSeconds = next.epochSeconds - previous.epochSeconds;
-  const progress =
-    durationSeconds > 0 ? (nowEpochSeconds - previous.epochSeconds) / durationSeconds : 0;
-  const legDistanceMeters = approxDistanceMeters(
-    previous.latitude,
-    previous.longitude,
-    next.latitude,
-    next.longitude
-  );
-  const speedMetersPerSecond = durationSeconds > 0 ? legDistanceMeters / durationSeconds : 0;
-
-  return {
-    latitude: previous.latitude + (next.latitude - previous.latitude) * progress,
-    longitude: previous.longitude + (next.longitude - previous.longitude) * progress,
-    bearing: computeBearing(previous.latitude, previous.longitude, next.latitude, next.longitude),
-    speedMetersPerSecond,
-  };
+  return { times, path: null, distances: null, latitudes, longitudes };
 };
 
-const interpolatePositionAlongTrack = (
-  waypoints: TrainAnimationWaypoint[],
-  nowEpochSeconds: number,
-  tracks: TrainTracksResponse,
-  routeId: string
+const sampleAlongTrack = (
+  motion: TrainMotion,
+  path: TrackPath,
+  distances: Float64Array,
+  nowEpochSeconds: number
 ): InterpolatedTrainPosition | null => {
-  const path = selectRouteTrackPath(tracks, routeId, waypoints);
-  if (path == null) {
-    return null;
+  const times = motion.times;
+  const count = times.length;
+
+  if (count === 1) {
+    return samplePathAtDistance(path, distances[0], 0, 0);
   }
 
-  const projectedWaypoints = waypoints
-    .flatMap<ProjectedWaypoint>((waypoint) => {
-      const projection = projectWaypointToPath(path, waypoint);
-      if (projection == null) return [];
-      return [{ epochSeconds: waypoint.epochSeconds, distanceMeters: projection.distanceMeters }];
-    })
-    .filter(
-      (waypoint, index, projected) =>
-        index === projected.length - 1 ||
-        waypoint.epochSeconds !== projected[index + 1].epochSeconds
-    );
-
-  if (projectedWaypoints.length === 0) {
-    return null;
-  }
-
-  if (projectedWaypoints.length === 1 || nowEpochSeconds <= projectedWaypoints[0].epochSeconds) {
-    const first = projectedWaypoints[0];
-    const next = projectedWaypoints[1] ?? first;
-    const durationSeconds = Math.max(0, next.epochSeconds - first.epochSeconds);
-    const legDistanceMeters = Math.abs(next.distanceMeters - first.distanceMeters);
-    const speedMetersPerSecond = durationSeconds > 0 ? legDistanceMeters / durationSeconds : 0;
+  if (nowEpochSeconds <= times[0]) {
+    const duration = times[1] - times[0];
+    const legMeters = Math.abs(distances[1] - distances[0]);
     return samplePathAtDistance(
       path,
-      first.distanceMeters,
-      next.distanceMeters - first.distanceMeters,
-      speedMetersPerSecond
+      distances[0],
+      distances[1] - distances[0],
+      duration > 0 ? legMeters / duration : 0
     );
   }
 
-  const last = projectedWaypoints[projectedWaypoints.length - 1];
-  if (nowEpochSeconds >= last.epochSeconds) {
-    const previous = projectedWaypoints[projectedWaypoints.length - 2] ?? last;
-    const durationSeconds = Math.max(0, last.epochSeconds - previous.epochSeconds);
-    const legDistanceMeters = Math.abs(last.distanceMeters - previous.distanceMeters);
-    const speedMetersPerSecond = durationSeconds > 0 ? legDistanceMeters / durationSeconds : 0;
+  const lastIndex = count - 1;
+  if (nowEpochSeconds >= times[lastIndex]) {
+    const previousIndex = lastIndex - 1;
+    const duration = times[lastIndex] - times[previousIndex];
+    const legMeters = Math.abs(distances[lastIndex] - distances[previousIndex]);
     return samplePathAtDistance(
       path,
-      last.distanceMeters,
-      last.distanceMeters - previous.distanceMeters,
-      speedMetersPerSecond
+      distances[lastIndex],
+      distances[lastIndex] - distances[previousIndex],
+      duration > 0 ? legMeters / duration : 0
     );
   }
 
-  const nextIndex = projectedWaypoints.findIndex(
-    (waypoint) => waypoint.epochSeconds >= nowEpochSeconds
-  );
-  const next = projectedWaypoints[nextIndex];
-  const previous = projectedWaypoints[nextIndex - 1];
-  const durationSeconds = next.epochSeconds - previous.epochSeconds;
-  const progress =
-    durationSeconds > 0 ? (nowEpochSeconds - previous.epochSeconds) / durationSeconds : 0;
+  const nextIndex = Math.max(1, firstIndexAtOrAfter(times, nowEpochSeconds));
+  const previousIndex = nextIndex - 1;
+  const duration = times[nextIndex] - times[previousIndex];
+  const progress = duration > 0 ? (nowEpochSeconds - times[previousIndex]) / duration : 0;
   const distanceMeters =
-    previous.distanceMeters + (next.distanceMeters - previous.distanceMeters) * progress;
-  const legDistanceMeters = Math.abs(next.distanceMeters - previous.distanceMeters);
-  const speedMetersPerSecond = durationSeconds > 0 ? legDistanceMeters / durationSeconds : 0;
+    distances[previousIndex] + (distances[nextIndex] - distances[previousIndex]) * progress;
+  const legMeters = Math.abs(distances[nextIndex] - distances[previousIndex]);
 
   return samplePathAtDistance(
     path,
     distanceMeters,
-    next.distanceMeters - previous.distanceMeters,
-    speedMetersPerSecond
+    distances[nextIndex] - distances[previousIndex],
+    duration > 0 ? legMeters / duration : 0
   );
+};
+
+export const sampleTrainMotion = (
+  motion: TrainMotion,
+  nowEpochSeconds: number
+): InterpolatedTrainPosition | null => {
+  const times = motion.times;
+  const count = times.length;
+  if (count === 0) {
+    return null;
+  }
+
+  if (motion.path != null && motion.distances != null) {
+    return sampleAlongTrack(motion, motion.path, motion.distances, nowEpochSeconds);
+  }
+
+  const latitudes = motion.latitudes;
+  const longitudes = motion.longitudes;
+  if (latitudes == null || longitudes == null) {
+    return null;
+  }
+
+  if (count === 1 || nowEpochSeconds <= times[0]) {
+    const nextIndex = count > 1 ? 1 : 0;
+    return {
+      latitude: latitudes[0],
+      longitude: longitudes[0],
+      bearing: computeBearing(
+        latitudes[0],
+        longitudes[0],
+        latitudes[nextIndex],
+        longitudes[nextIndex]
+      ),
+      speedMetersPerSecond: 0,
+    };
+  }
+
+  const lastIndex = count - 1;
+  if (nowEpochSeconds >= times[lastIndex]) {
+    const previousIndex = lastIndex - 1;
+    return {
+      latitude: latitudes[lastIndex],
+      longitude: longitudes[lastIndex],
+      bearing: computeBearing(
+        latitudes[previousIndex],
+        longitudes[previousIndex],
+        latitudes[lastIndex],
+        longitudes[lastIndex]
+      ),
+      speedMetersPerSecond: 0,
+    };
+  }
+
+  const nextIndex = Math.max(1, firstIndexAtOrAfter(times, nowEpochSeconds));
+  const previousIndex = nextIndex - 1;
+  const duration = times[nextIndex] - times[previousIndex];
+  const progress = duration > 0 ? (nowEpochSeconds - times[previousIndex]) / duration : 0;
+  const legMeters = approxDistanceMeters(
+    latitudes[previousIndex],
+    longitudes[previousIndex],
+    latitudes[nextIndex],
+    longitudes[nextIndex]
+  );
+
+  return {
+    latitude:
+      latitudes[previousIndex] + (latitudes[nextIndex] - latitudes[previousIndex]) * progress,
+    longitude:
+      longitudes[previousIndex] + (longitudes[nextIndex] - longitudes[previousIndex]) * progress,
+    bearing: computeBearing(
+      latitudes[previousIndex],
+      longitudes[previousIndex],
+      latitudes[nextIndex],
+      longitudes[nextIndex]
+    ),
+    speedMetersPerSecond: duration > 0 ? legMeters / duration : 0,
+  };
 };

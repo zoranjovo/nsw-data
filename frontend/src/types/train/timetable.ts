@@ -39,6 +39,12 @@ export type TimetableData = {
   stops: TimetableStop[];
 };
 
+export const isTimetableData = (value: unknown): value is TimetableData => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<TimetableData>;
+  return typeof candidate.tripId === "string" && Array.isArray(candidate.stops);
+};
+
 export type StaticStop = {
   stopId: string;
   stopName: string | null;

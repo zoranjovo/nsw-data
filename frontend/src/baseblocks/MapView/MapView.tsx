@@ -9,7 +9,9 @@ import { TrainLines } from "../TrainTracks/TrainTracks";
 import { Buildings3D } from "./Buildings3D";
 import { MapContext } from "./MapContext";
 import styles from "./MapView.module.css";
+import { Terrain3D } from "./Terrain3D";
 import { TileLayerSelector } from "./TileLayerSelector";
+import { FLAT_MAX_PITCH, TERRAIN_MAX_PITCH } from "./terrain";
 import type { TileLayerOption } from "./tileLayers";
 import { TILE_LAYERS } from "./tileLayers";
 
@@ -29,6 +31,7 @@ export const MapView = () => {
   const [selectedLayer, setSelectedLayer] = useState<TileLayerOption>(
     () => TILE_LAYERS.find((l) => l.id === storedState.layerId) ?? TILE_LAYERS[0]
   );
+  const [terrain3d, setTerrain3d] = useState(() => storedState.terrain3d);
   const [map, setMap] = useState<maplibregl.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,6 +39,8 @@ export const MapView = () => {
     center: [storedState.center[1], storedState.center[0]] as [number, number],
     zoom: storedState.zoom,
     bearing: storedState.bearing,
+    pitch: storedState.pitch,
+    maxPitch: terrain3d ? TERRAIN_MAX_PITCH : FLAT_MAX_PITCH,
     style: selectedLayer.style,
   });
 
@@ -44,8 +49,17 @@ export const MapView = () => {
   }, [selectedLayer]);
 
   useEffect(() => {
+    saveMapState({ terrain3d });
+  }, [terrain3d]);
+
+  useEffect(() => {
+    if (!map) return;
+    map.setMaxPitch(terrain3d ? TERRAIN_MAX_PITCH : FLAT_MAX_PITCH);
+  }, [map, terrain3d]);
+
+  useEffect(() => {
     if (!mapContainerRef.current) return;
-    const { center, zoom, bearing, style } = initialMapConfigRef.current;
+    const { center, zoom, bearing, pitch, maxPitch, style } = initialMapConfigRef.current;
 
     const mapInstance = new maplibregl.Map({
       container: mapContainerRef.current,
@@ -56,10 +70,20 @@ export const MapView = () => {
       minZoom: MIN_ZOOM,
       maxZoom: MAX_ZOOM,
       maxBounds: NSW_BOUNDS,
-      pitch: 0,
+      pitch,
+      maxPitch,
+      attributionControl: { compact: true },
     });
 
-    mapInstance.addControl(new maplibregl.NavigationControl(), "top-left");
+    mapInstance.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
+
+    const collapseAttribution = () => {
+      const attrib = mapInstance.getContainer().querySelector(".maplibregl-ctrl-attrib");
+      if (!attrib || attrib.classList.contains("maplibregl-attrib-empty")) return;
+      attrib.classList.remove("maplibregl-compact-show");
+      mapInstance.off("styledata", collapseAttribution);
+    };
+    mapInstance.on("styledata", collapseAttribution);
 
     const handler = () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -70,6 +94,7 @@ export const MapView = () => {
           center: [c.lat, c.lng],
           zoom: mapInstance.getZoom(),
           bearing: mapInstance.getBearing(),
+          pitch: mapInstance.getPitch(),
         });
       }, DEBOUNCE_MS);
     };
@@ -100,9 +125,14 @@ export const MapView = () => {
 
   return (
     <div className={styles.mapWrapper}>
-      <div ref={mapContainerRef} className={styles.map} />
+      <div
+        ref={mapContainerRef}
+        className={styles.map}
+        style={{ background: selectedLayer.background }}
+      />
       {map && (
         <MapContext.Provider value={map}>
+          <Terrain3D enabled={terrain3d} layerId={selectedLayer.id} />
           <Buildings3D layerId={selectedLayer.id} />
           {currentPage === "trains" && mapReady && (
             <>
@@ -115,6 +145,8 @@ export const MapView = () => {
             layers={TILE_LAYERS}
             selected={selectedLayer}
             onChange={setSelectedLayer}
+            terrainEnabled={terrain3d}
+            onTerrainChange={setTerrain3d}
           />
         </MapContext.Provider>
       )}

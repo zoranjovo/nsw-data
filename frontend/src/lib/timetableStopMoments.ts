@@ -1,3 +1,4 @@
+import { approxDistanceMeters } from "@/lib/geo";
 import type { TimetableStop } from "@/types/train/timetable";
 
 const coalesceEpochSeconds = (value: number | null | undefined): number | null => {
@@ -22,6 +23,20 @@ export const effectiveStopTimeEpoch = (
   return scheduledTimestamp ?? null;
 };
 
+export const stopArrivalEpoch = (stop: TimetableStop): number | null =>
+  effectiveStopTimeEpoch(
+    stop.realtimeArrivalTimestamp,
+    stop.scheduledArrivalTimestamp,
+    stop.arrivalDelaySeconds
+  );
+
+export const stopDepartureEpoch = (stop: TimetableStop): number | null =>
+  effectiveStopTimeEpoch(
+    stop.realtimeDepartureTimestamp,
+    stop.scheduledDepartureTimestamp,
+    stop.departureDelaySeconds
+  );
+
 export const getStopOrderingMoment = (stop: TimetableStop): number | null => {
   return (
     effectiveStopTimeEpoch(
@@ -37,7 +52,7 @@ export const getStopOrderingMoment = (stop: TimetableStop): number | null => {
   );
 };
 
-const approxDistanceMeters = (
+const approxDistanceMetersOrNull = (
   vehicleLat: number | null | undefined,
   vehicleLon: number | null | undefined,
   stopLat: number | null | undefined,
@@ -55,10 +70,7 @@ const approxDistanceMeters = (
   ) {
     return null;
   }
-  const dy = (stopLat - vehicleLat) * 111_000;
-  const cosLat = Math.cos((vehicleLat * Math.PI) / 180);
-  const dx = (stopLon - vehicleLon) * 111_000 * cosLat;
-  return Math.hypot(dx, dy);
+  return approxDistanceMeters(vehicleLat, vehicleLon, stopLat, stopLon);
 };
 
 const NEAR_CURRENT_STOP_M = 320;
@@ -106,7 +118,12 @@ export const resolveNextStopForBearing = (
   }
 
   // Cases 5–6: time and sequence agree on the same stop
-  const d = approxDistanceMeters(vehicleLat, vehicleLon, nextByTime.latitude, nextByTime.longitude);
+  const d = approxDistanceMetersOrNull(
+    vehicleLat,
+    vehicleLon,
+    nextByTime.latitude,
+    nextByTime.longitude
+  );
   if (d != null && d < NEAR_CURRENT_STOP_M && nextAfterSeq != null) {
     return nextAfterSeq;
   }

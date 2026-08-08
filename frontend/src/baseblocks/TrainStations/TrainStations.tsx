@@ -1,8 +1,8 @@
-import type maplibregl from "maplibre-gl";
 import { useEffect, useMemo } from "react";
 import { useAppContext } from "@/providers/AppProvider";
 import type { TrainStopsResponse } from "@/types/train/stops";
-import { useMapLibre } from "../MapView/MapContext";
+import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
+import { EMPTY_GEOJSON, getGeoJSONSource } from "../MapView/mapSources";
 import {
   STATION_LABEL_MIN_ZOOM,
   syncTrainOverlayLayerOrder,
@@ -12,8 +12,6 @@ import {
 
 const SOURCE_ID = "train-stops";
 const LAYER_ID = TRAIN_STOPS_LAYER_ID;
-
-const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 const stopsToGeoJSON = (stops: TrainStopsResponse): GeoJSON.FeatureCollection => {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = stops
@@ -43,10 +41,9 @@ export const TrainStations = () => {
 
   useEffect(() => {
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
 
     const addTrainStopsLayer = () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       if (map.getSource(SOURCE_ID)) return;
       map.addSource(SOURCE_ID, {
         type: "geojson",
@@ -84,7 +81,7 @@ export const TrainStations = () => {
       });
       syncTrainOverlayLayerOrder(map);
 
-      const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+      const source = getGeoJSONSource(map, SOURCE_ID);
       if (source) {
         source.setData(geojsonData);
       }
@@ -93,7 +90,7 @@ export const TrainStations = () => {
     map.on("style.load", addTrainStopsLayer);
 
     return () => {
-      if (isMapRemoved()) return;
+      if (isMapRemoved(map)) return;
       map.off("style.load", addTrainStopsLayer);
       if (map.getSource(SOURCE_ID)) {
         if (map.getLayer(TRAIN_STOPS_LABELS_LAYER_ID)) {
@@ -107,22 +104,21 @@ export const TrainStations = () => {
 
   useEffect(() => {
     if (!map) return;
-    const isMapRemoved = () => Boolean((map as { _removed?: boolean })._removed);
-    if (isMapRemoved()) return;
-    const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    if (isMapRemoved(map)) return;
+    const source = getGeoJSONSource(map, SOURCE_ID);
     if (source) {
       source.setData(geojsonData);
       return;
     }
 
     const syncAfterStyleLoad = () => {
-      const src = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+      const src = getGeoJSONSource(map, SOURCE_ID);
       if (src) {
         src.setData(geojsonData);
       }
     };
 
-    if (!isMapRemoved() && map.isStyleLoaded()) {
+    if (!isMapRemoved(map) && map.isStyleLoaded()) {
       syncAfterStyleLoad();
     } else {
       map.once("style.load", syncAfterStyleLoad);
