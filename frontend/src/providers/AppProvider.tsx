@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useLocation } from "react-router-dom";
@@ -116,13 +117,22 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     saveTrainMovementSettings({ interpolatedTrainMovement, smoothInterpolatedTrainMovement });
   }, [interpolatedTrainMovement, smoothInterpolatedTrainMovement]);
 
+  const staticLoadStatusRef = useRef(staticLoadStatus);
+  useEffect(() => {
+    staticLoadStatusRef.current = staticLoadStatus;
+  }, [staticLoadStatus]);
+
   useEffect(() => {
     if (currentPage !== "trains") {
       stopRealtimePolling();
       return;
     }
 
-    loadTrainStaticData(setTrainStatic, setStaticLoadStatus);
+    const cancelStaticLoad = loadTrainStaticData(
+      setTrainStatic,
+      setStaticLoadStatus,
+      staticLoadStatusRef.current
+    );
 
     setTrainRealtime((prev) => ({
       ...prev,
@@ -159,6 +169,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     );
 
     return () => {
+      cancelStaticLoad();
       stopRealtimePolling();
     };
   }, [currentPage]);
