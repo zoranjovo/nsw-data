@@ -11,7 +11,7 @@ import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
 import { getGeoJSONSource } from "../MapView/mapSources";
 import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
 import { syncTrainOverlayLayerOrder, TRAIN_POSITIONS_LAYER_ID } from "../trainMapLayers";
-import { buildTrainPositionFeatures } from "./trainPositionFeatures";
+import { buildTrainPositionFeatures, trainPositionFeaturesKey } from "./trainPositionFeatures";
 import {
   addTrainPositionsLayer,
   removeTrainPositionsLayer,
@@ -49,6 +49,7 @@ export const TrainIcons = () => {
   const prefetchRetryAtRef = useRef<Map<string, number>>(new Map());
   const inFlightTimetableTripIdsRef = useRef<Set<string>>(new Set());
   const schedulePrefetchRef = useRef<(() => void) | null>(null);
+  const lastFeaturesKeyRef = useRef("");
 
   const fetchAndCacheTimetables = useCallback(
     async (tripIds: string[]) => {
@@ -130,6 +131,9 @@ export const TrainIcons = () => {
       },
     });
 
+    const featuresKey = trainPositionFeaturesKey(features);
+    if (featuresKey === lastFeaturesKeyRef.current) return;
+    lastFeaturesKeyRef.current = featuresKey;
     source.setData({ type: "FeatureCollection", features });
   }, [map, getSelectedTrain]);
 
@@ -159,6 +163,7 @@ export const TrainIcons = () => {
     const addLayer = () => {
       if (isMapRemoved(map)) return;
       addTrainPositionsLayer(map);
+      lastFeaturesKeyRef.current = "";
       syncTrainOverlayLayerOrder(map);
       syncPositionsData();
     };
