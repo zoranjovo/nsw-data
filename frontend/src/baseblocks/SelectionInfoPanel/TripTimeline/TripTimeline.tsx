@@ -8,7 +8,7 @@ import {
   stopDepartureEpoch,
 } from "@/lib/timetableStopMoments";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
-import { getRouteShortNameFromRouteId } from "@/lib/trainRouteId";
+import { createRouteShortNameLookup } from "@/lib/trainRouteId";
 import { useAppContext } from "@/providers/AppProvider";
 import type { TimetableData, TimetableStop } from "@/types/train/timetable";
 import { isTimetableData } from "@/types/train/timetable";
@@ -281,9 +281,13 @@ export const TripTimeline = ({
   }, [tripId, contextTimetable, cacheTimetable]);
 
   const timetable = contextTimetable ?? fetchedTimetable;
+  const getRouteShortName = useMemo(
+    () => createRouteShortNameLookup(trainStatic.tracks.features),
+    [trainStatic.tracks.features]
+  );
   const routeShortName = useMemo(
-    () => timetable?.routeShortName ?? getRouteShortNameFromRouteId(timetable?.routeId),
-    [timetable]
+    () => timetable?.routeShortName ?? getRouteShortName(timetable?.routeId),
+    [timetable, getRouteShortName]
   );
   const resolvedRouteColor = useMemo(() => {
     if (!routeShortName) return "#999999";
