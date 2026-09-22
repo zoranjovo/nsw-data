@@ -3,7 +3,7 @@ import compression from "compression";
 import cors from "cors";
 import express from "express";
 import { registerRoutes } from "./router";
-import { appState, initialiseApp, wakeUpApp } from "./state/appState";
+import { appState, initialiseApp, recordApiRequest } from "./state/appState";
 import { describeError } from "./utils/errors";
 
 process.on("unhandledRejection", (reason) => {
@@ -29,9 +29,7 @@ app.use((_req, res, next) => {
   if (!appState.isReady) {
     return res.status(503).json({ error: "Service is not ready" });
   }
-  if (!appState.isActive) {
-    void wakeUpApp();
-  }
+  recordApiRequest();
   next();
 });
 registerRoutes(app);

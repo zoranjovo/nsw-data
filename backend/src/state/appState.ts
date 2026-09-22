@@ -61,14 +61,17 @@ const slowTick = () => {
   })();
 };
 
-export const wakeUpApp = async () => {
-  if (appState.isActive) {
-    return;
-  }
+const wakeUpApp = () => {
   appState.isActive = true;
-  appState.lastApiRequestAt = DateTime.now().toMillis();
   interval = setInterval(fastTick, FAST_TICK_INTERVAL_MS);
   debugLog("WAKING UP", "app is now active");
+};
+
+export const recordApiRequest = () => {
+  appState.lastApiRequestAt = DateTime.now().toMillis();
+  if (!appState.isActive) {
+    wakeUpApp();
+  }
 };
 
 const loadInitialData = async () => {
