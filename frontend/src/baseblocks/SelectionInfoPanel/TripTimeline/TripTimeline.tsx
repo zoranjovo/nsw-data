@@ -10,7 +10,7 @@ import {
 } from "@/lib/timetableStopMoments";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
 import { createRouteShortNameLookup } from "@/lib/trainRouteId";
-import { useAppContext } from "@/providers/AppProvider";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TimetableStop } from "@/types/train/timetable";
 import { isTimetableData } from "@/types/train/timetable";
 import styles from "./TripTimeline.module.css";
@@ -220,7 +220,8 @@ export const TripTimeline = ({
   showRaw,
   routeColor: routeColorProp,
 }: TripTimelineProps) => {
-  const { trainStatic, trainRealtime, cacheTimetable } = useAppContext();
+  const { trainStatic } = useAppContext();
+  const { trainRealtime, timetables, cacheTimetable } = useLiveTrainData();
   const [nowEpochSeconds, setNowEpochSeconds] = useState(() => Math.floor(Date.now() / 1000));
   const nextStopRef = useRef<HTMLLIElement | null>(null);
   const stopNamesById = useMemo(() => {
@@ -233,7 +234,7 @@ export const TripTimeline = ({
     return map;
   }, [trainStatic.stops]);
 
-  const timetable = trainStatic.timetables.get(tripId) ?? null;
+  const timetable = timetables.get(tripId) ?? null;
   const tripUpdatesFetchedAt = trainRealtime.tripUpdates.fetchedAt;
   const refreshKey =
     timetable == null || isTimetableStale(timetable, tripUpdatesFetchedAt)

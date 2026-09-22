@@ -13,7 +13,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { isSameTrain } from "@/lib/trainIdentity";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
 import { createRouteShortNameLookup } from "@/lib/trainRouteId";
-import { useAppContext } from "@/providers/AppProvider";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainPosition } from "@/types/train/train";
 import styles from "./SelectionInfoPanel.module.css";
 import { TripTimeline } from "./TripTimeline/TripTimeline";
@@ -172,7 +172,8 @@ const PanelContent = ({
 };
 
 export const SelectionInfoPanel = () => {
-  const { selectedItem, setSelectedItem, trainStatic, trainRealtime } = useAppContext();
+  const { selectedItem, setSelectedItem, trainStatic } = useAppContext();
+  const { trainRealtime } = useLiveTrainData();
   const isMobile = useIsMobile();
 
   const [displayedTrain, setDisplayedTrain] = useState<TrainPosition | null>(null);

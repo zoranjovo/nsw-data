@@ -4,7 +4,7 @@ import { getTrainTimetableBulk } from "@/client-api/train";
 import { isTimetableStale } from "@/lib/timetableRefresh";
 import { createTrainMotionCache } from "@/lib/trainMotionCache";
 import { sampleTrainMotion } from "@/lib/trainPositionInterpolator";
-import { useAppContext } from "@/providers/AppProvider";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import { isTimetableData, type TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
@@ -36,13 +36,12 @@ export const TrainIcons = () => {
     selectedItem,
     interpolatedTrainMovement,
     smoothInterpolatedTrainMovement,
-    trainRealtime,
     trainStatic,
-    cacheTimetables,
   } = useAppContext();
+  const { trainRealtime, timetables, cacheTimetables } = useLiveTrainData();
 
   const positionsRef = useRef<TrainPosition[]>([]);
-  const timetablesByTripIdRef = useRef<Map<string, TimetableData>>(trainStatic.timetables);
+  const timetablesByTripIdRef = useRef<Map<string, TimetableData>>(timetables);
   const tripUpdatesFetchedAtRef = useRef(trainRealtime.tripUpdates.fetchedAt);
   const tracksRef = useRef<TrainTracksResponse>(trainStatic.tracks);
   const motionCacheRef = useRef(createTrainMotionCache());
@@ -136,9 +135,9 @@ export const TrainIcons = () => {
   }, [map, getSelectedTrain]);
 
   useEffect(() => {
-    timetablesByTripIdRef.current = trainStatic.timetables;
+    timetablesByTripIdRef.current = timetables;
     syncPositionsData();
-  }, [trainStatic.timetables, syncPositionsData]);
+  }, [timetables, syncPositionsData]);
 
   useEffect(() => {
     tracksRef.current = trainStatic.tracks;

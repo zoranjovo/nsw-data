@@ -34,7 +34,6 @@ export type TrainRealtimeState = {
 
 export type TrainStaticState = {
   status: "idle" | "loading" | "ready" | "error";
-  timetables: Map<string, TimetableData>;
   tracks: TrainTracksResponse;
   stops: TrainStopsResponse;
   error: string | null;
@@ -56,9 +55,13 @@ export interface AppState {
   setSmoothInterpolatedTrainMovement: Dispatch<SetStateAction<boolean>>;
   selectedItem: SelectedItem;
   setSelectedItem: Dispatch<SetStateAction<SelectedItem>>;
-  trainRealtime: TrainRealtimeState;
   trainStatic: TrainStaticState;
   staticLoadStatus: StaticLoadStatus;
+}
+
+export interface LiveTrainData {
+  trainRealtime: TrainRealtimeState;
+  timetables: Map<string, TimetableData>;
   cacheTimetable: (timetable: TimetableData) => void;
   cacheTimetables: (timetables: TimetableData[]) => void;
 }
@@ -78,7 +81,6 @@ const initialTrainRealtime: TrainRealtimeState = {
 
 const initialTrainStatic: TrainStaticState = {
   status: "idle",
-  timetables: new Map(),
   tracks: {
     type: "FeatureCollection",
     name: "train-tracks",
@@ -95,6 +97,7 @@ const initialStaticLoadStatus: StaticLoadStatus = {
 };
 
 const AppContext = createContext<AppState | null>(null);
+const LiveTrainDataContext = createContext<LiveTrainData | null>(null);
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
@@ -110,6 +113,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [selectedItem, setSelectedItem] = useState<SelectedItem>(null);
   const [trainRealtime, setTrainRealtime] = useState<TrainRealtimeState>(initialTrainRealtime);
   const [trainStatic, setTrainStatic] = useState<TrainStaticState>(initialTrainStatic);
+  const [timetables, setTimetables] = useState<Map<string, TimetableData>>(() => new Map());
   const [staticLoadStatus, setStaticLoadStatus] =
     useState<StaticLoadStatus>(initialStaticLoadStatus);
 
@@ -174,21 +178,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [currentPage]);
 
-  const cacheTimetables = useCallback((timetables: TimetableData[]) => {
-    setTrainStatic((prev) => {
-      const newer = timetables.filter((timetable) => {
-        const cached = prev.timetables.get(timetable.tripId);
+  const cacheTimetables = useCallback((incoming: TimetableData[]) => {
+    setTimetables((prev) => {
+      const newer = incoming.filter((timetable) => {
+        const cached = prev.get(timetable.tripId);
         return (
           cached == null ||
           (timetable.tripUpdatesFetchedAt ?? 0) > (cached.tripUpdatesFetchedAt ?? 0)
         );
       });
       if (newer.length === 0) return prev;
-      const next = new Map(prev.timetables);
+      const next = new Map(prev);
       for (const timetable of newer) {
         next.set(timetable.tripId, timetable);
       }
-      return { ...prev, timetables: next };
+      return next;
     });
   }, []);
 
@@ -201,16 +205,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const liveTripIds = new Set(trainRealtime.positions.items.map((position) => position.tripId));
     const selectedTripId =
       selectedItem?.type === "train" ? (selectedItem.data as TrainPosition).tripId : null;
-    setTrainStatic((prev) => {
-      const goneTripIds = [...prev.timetables.keys()].filter(
+    setTimetables((prev) => {
+      const goneTripIds = [...prev.keys()].filter(
         (tripId) => !liveTripIds.has(tripId) && tripId !== selectedTripId
       );
       if (goneTripIds.length === 0) return prev;
-      const next = new Map(prev.timetables);
+      const next = new Map(prev);
       for (const tripId of goneTripIds) {
         next.delete(tripId);
       }
-      return { ...prev, timetables: next };
+      return next;
     });
   }, [trainRealtime.positions, selectedItem]);
 
@@ -225,11 +229,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setSmoothInterpolatedTrainMovement,
       selectedItem,
       setSelectedItem,
-      trainRealtime,
       trainStatic,
       staticLoadStatus,
-      cacheTimetable,
-      cacheTimetables,
     }),
     [
       mapReady,
@@ -237,21 +238,37 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       interpolatedTrainMovement,
       smoothInterpolatedTrainMovement,
       selectedItem,
-      trainRealtime,
       trainStatic,
       staticLoadStatus,
-      cacheTimetable,
-      cacheTimetables,
     ]
   );
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  const liveTrainData = useMemo<LiveTrainData>(
+    () => ({ trainRealtime, timetables, cacheTimetable, cacheTimetables }),
+    [trainRealtime, timetables, cacheTimetable, cacheTimetables]
+  );
+
+  return (
+    <AppContext.Provider value={value}>
+      <LiveTrainDataContext.Provider value={liveTrainData}>
+        {children}
+      </LiveTrainDataContext.Provider>
+    </AppContext.Provider>
+  );
 };
 
 export const useAppContext = (): AppState => {
   const ctx = useContext(AppContext);
   if (!ctx) {
     throw new Error("useAppContext must be used within AppProvider");
+  }
+  return ctx;
+};
+
+export const useLiveTrainData = (): LiveTrainData => {
+  const ctx = useContext(LiveTrainDataContext);
+  if (!ctx) {
+    throw new Error("useLiveTrainData must be used within AppProvider");
   }
   return ctx;
 };
