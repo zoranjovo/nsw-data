@@ -21,6 +21,20 @@ const getStopMomentSeconds = (stopTime: StaticStopTime): number | null => {
   return stopTime.departureSeconds ?? stopTime.arrivalSeconds ?? null;
 };
 
+const serviceDayStartByDate = new Map<string, number | null>();
+
+const getServiceDayStart = (serviceDate: string): number | null => {
+  let dayStart = serviceDayStartByDate.get(serviceDate);
+  if (dayStart === undefined) {
+    const noon = DateTime.fromFormat(serviceDate, "yyyy-MM-dd", { zone: SYDNEY_ZONE }).set({
+      hour: 12,
+    });
+    dayStart = noon.isValid ? Math.floor(noon.toSeconds()) - 12 * 3600 : null;
+    serviceDayStartByDate.set(serviceDate, dayStart);
+  }
+  return dayStart;
+};
+
 export const toUnixTimestampForSydneyServiceDate = (
   serviceDate: string,
   secondsAfterMidnight: number | null
@@ -28,19 +42,8 @@ export const toUnixTimestampForSydneyServiceDate = (
   if (secondsAfterMidnight == null) {
     return null;
   }
-
-  const dayOffset = Math.floor(secondsAfterMidnight / 86_400);
-  const secondsWithinDay = secondsAfterMidnight - dayOffset * 86_400;
-  const hours = Math.floor(secondsWithinDay / 3600);
-  const minutes = Math.floor((secondsWithinDay % 3600) / 60);
-  const seconds = secondsWithinDay % 60;
-
-  const base = DateTime.fromFormat(serviceDate, "yyyy-MM-dd", { zone: SYDNEY_ZONE });
-  if (!base.isValid) {
-    return null;
-  }
-  const dt = base.plus({ days: dayOffset }).set({ hour: hours, minute: minutes, second: seconds });
-  return Math.floor(dt.toSeconds());
+  const dayStart = getServiceDayStart(serviceDate);
+  return dayStart == null ? null : dayStart + secondsAfterMidnight;
 };
 
 const resolveServiceDateForTrip = (args: {
