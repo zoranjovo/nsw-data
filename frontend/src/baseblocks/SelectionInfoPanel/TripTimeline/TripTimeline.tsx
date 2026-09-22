@@ -297,7 +297,12 @@ export const TripTimeline = ({
   const routeColor = routeColorProp ?? resolvedRouteColor;
 
   const stops = useMemo(
-    () => (timetable ? [...timetable.stops].sort((a, b) => a.stopSequence - b.stopSequence) : []),
+    () =>
+      timetable
+        ? timetable.stops
+            .filter((stop) => !stop.skipped)
+            .sort((a, b) => a.stopSequence - b.stopSequence)
+        : [],
     [timetable]
   );
   const visibleStops = useMemo(() => {
