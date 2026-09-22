@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
 import { isTimetableStale } from "@/lib/timetableRefresh";
 import { createTrainMotionCache } from "@/lib/trainMotionCache";
-import { sampleTrainMotion } from "@/lib/trainPositionInterpolator";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import { isTimetableData, type TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
@@ -115,12 +114,12 @@ export const TrainIcons = () => {
         target.bearing = position.bearing ?? null;
         if (!interpolate) return;
 
-        const motion = motionCacheRef.current.get(
+        const sample = motionCacheRef.current.sample(
           position,
           timetablesByTripIdRef.current.get(position.tripId),
-          tracksRef.current
+          tracksRef.current,
+          nowEpochSeconds
         );
-        const sample = motion != null ? sampleTrainMotion(motion, nowEpochSeconds) : null;
         if (sample == null) {
           target.bearing = null;
           return;
