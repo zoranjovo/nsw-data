@@ -1,5 +1,6 @@
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { addAbortSignal, pipeline } from "node:stream";
 import axios from "axios";
 import { parse } from "csv-parse";
 import { DateTime } from "luxon";
@@ -19,6 +20,7 @@ import type {
 import { debugLog } from "../../utils/debug";
 
 const TFNSW_STATIC_TIMETABLE_URL = "https://api.transport.nsw.gov.au/v1/gtfs/schedule/sydneytrains";
+const STATIC_DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 
 const ASSETS_DIR = resolve(process.cwd(), "temp-assets");
 const STATIC_ASSETS_ZONE = "Australia/Sydney";
@@ -206,13 +208,15 @@ const consumeCsv = async (
   stream: NodeJS.ReadableStream,
   onRecord: (record: CsvRecord) => void | Promise<void>
 ): Promise<void> => {
-  const parser = stream.pipe(
+  const parser = pipeline(
+    stream,
     parse({
       columns: true,
       trim: true,
       bom: true,
       skip_empty_lines: true,
-    })
+    }),
+    () => {}
   );
 
   for await (const record of parser as AsyncIterable<CsvRecord>) {
@@ -220,7 +224,10 @@ const consumeCsv = async (
   }
 };
 
-const parseGtfsZip = async (stream: NodeJS.ReadableStream): Promise<ParsedGtfs> => {
+const parseGtfsZip = async (
+  stream: NodeJS.ReadableStream,
+  signal: AbortSignal
+): Promise<ParsedGtfs> => {
   const zipEntries = new Set([
     "routes.txt",
     "stop_times.txt",
@@ -236,8 +243,15 @@ const parseGtfsZip = async (stream: NodeJS.ReadableStream): Promise<ParsedGtfs> 
   const routeMetaById = new Map<string, RouteMeta>();
   const tripShapes: TripShape[] = [];
 
-  const zipStream = stream.pipe(unzipper.Parse({ forceStream: true }));
+  const zipStream = unzipper.Parse({ forceStream: true });
+  let currentEntry: unzipper.Entry | null = null;
+  zipStream.on("error", (error) => {
+    currentEntry?.destroy(error);
+  });
+  pipeline(stream, addAbortSignal(signal, zipStream), () => {});
+
   for await (const entry of zipStream as AsyncIterable<unzipper.Entry>) {
+    currentEntry = entry;
     const fileName = entry.path.split("/").pop()?.toLowerCase() ?? "";
     if (!zipEntries.has(fileName)) {
       entry.autodrain();
@@ -479,15 +493,17 @@ const downloadAndSaveAssets = async (assetDir: string): Promise<void> => {
   }
 
   debugLog("STATIC", `downloading GTFS static data from ${TFNSW_STATIC_TIMETABLE_URL}`);
+  const signal = AbortSignal.timeout(STATIC_DOWNLOAD_TIMEOUT_MS);
   const response = await axios.get<NodeJS.ReadableStream>(TFNSW_STATIC_TIMETABLE_URL, {
     responseType: "stream",
+    signal,
     headers: {
       Authorization: `apikey ${apiKey}`,
       Accept: "application/zip",
     },
   });
 
-  const parsed = await parseGtfsZip(response.data);
+  const parsed = await parseGtfsZip(response.data, signal);
   const tracks = toTracksFeatureCollection(parsed.shapes, parsed.routeMetaById, parsed.tripShapes);
 
   if (
