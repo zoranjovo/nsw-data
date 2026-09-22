@@ -53,14 +53,13 @@ export const TrainIcons = () => {
   const schedulePrefetchRef = useRef<(() => void) | null>(null);
 
   const fetchAndCacheTimetables = useCallback(
-    async (tripIds: string[], options?: { force?: boolean }) => {
-      const force = options?.force ?? false;
+    async (tripIds: string[]) => {
       const now = Date.now();
       const missingTripIds = uniqueTripIds(tripIds).filter((tripId) => {
         const cached = timetablesByTripIdRef.current.get(tripId);
         if (cached && !isTimetableStale(cached, tripUpdatesFetchedAtRef.current)) return false;
         if (inFlightTimetableTripIdsRef.current.has(tripId)) return false;
-        return force || (prefetchRetryAtRef.current.get(tripId) ?? 0) <= now;
+        return (prefetchRetryAtRef.current.get(tripId) ?? 0) <= now;
       });
       if (missingTripIds.length === 0) return;
 
@@ -80,11 +79,9 @@ export const TrainIcons = () => {
           }
         }
       } catch {
-        if (!force) {
-          const failedRetryAt = Date.now() + FAILED_PREFETCH_RETRY_MS;
-          for (const tripId of missingTripIds) {
-            prefetchRetryAtRef.current.set(tripId, failedRetryAt);
-          }
+        const failedRetryAt = Date.now() + FAILED_PREFETCH_RETRY_MS;
+        for (const tripId of missingTripIds) {
+          prefetchRetryAtRef.current.set(tripId, failedRetryAt);
         }
       } finally {
         for (const tripId of missingTripIds) {
@@ -176,7 +173,7 @@ export const TrainIcons = () => {
       map.getCanvas().style.cursor = "";
     };
 
-    const onClick = async (e: maplibregl.MapMouseEvent) => {
+    const onClick = (e: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [TRAIN_POSITIONS_LAYER_ID] });
       if (features.length === 0) return;
       const feature = features[0];
@@ -198,9 +195,6 @@ export const TrainIcons = () => {
         bearing: props.bearing != null ? Number(props.bearing) : null,
         speed: props.speed != null ? Number(props.speed) : null,
       };
-      if (interpolatedRef.current && tripId && !timetablesByTripIdRef.current.has(tripId)) {
-        await fetchAndCacheTimetables([tripId], { force: true });
-      }
       setSelectedItem({ type: "train", data: selectedTrain });
     };
 
@@ -219,7 +213,7 @@ export const TrainIcons = () => {
       map.off("click", TRAIN_POSITIONS_LAYER_ID, onClick);
       removeTrainPositionsLayer(map);
     };
-  }, [map, setSelectedItem, fetchAndCacheTimetables, syncPositionsData]);
+  }, [map, setSelectedItem, syncPositionsData]);
 
   useEffect(() => {
     tripUpdatesFetchedAtRef.current = trainRealtime.tripUpdates.fetchedAt;
