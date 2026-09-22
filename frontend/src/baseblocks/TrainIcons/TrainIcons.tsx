@@ -20,6 +20,8 @@ import {
 import { trainUpdateIntervalMs } from "./trainUpdateRate";
 
 const TIMETABLE_PREFETCH_DEBOUNCE_MS = 200;
+const MISSING_TIMETABLE_RETRY_MS = 10 * 60 * 1000;
+const FAILED_PREFETCH_RETRY_MS = 30 * 1000;
 const VIEWPORT_PADDING_RATIO = 0.25;
 
 const uniqueTripIds = (tripIds: string[]): string[] => [
@@ -45,17 +47,18 @@ export const TrainIcons = () => {
   const selectedItemRef = useRef(selectedItem);
   const interpolatedRef = useRef(interpolatedTrainMovement);
   const cachedTimetableTripIdsRef = useRef<Set<string>>(new Set());
-  const failedPrefetchTripIdsRef = useRef<Set<string>>(new Set());
+  const prefetchRetryAtRef = useRef<Map<string, number>>(new Map());
   const inFlightTimetableTripIdsRef = useRef<Set<string>>(new Set());
   const schedulePrefetchRef = useRef<(() => void) | null>(null);
 
   const fetchAndCacheTimetables = useCallback(
     async (tripIds: string[], options?: { force?: boolean }) => {
       const force = options?.force ?? false;
+      const now = Date.now();
       const missingTripIds = uniqueTripIds(tripIds).filter((tripId) => {
         if (cachedTimetableTripIdsRef.current.has(tripId)) return false;
         if (inFlightTimetableTripIdsRef.current.has(tripId)) return false;
-        return force || !failedPrefetchTripIdsRef.current.has(tripId);
+        return force || (prefetchRetryAtRef.current.get(tripId) ?? 0) <= now;
       });
       if (missingTripIds.length === 0) return;
 
@@ -65,15 +68,20 @@ export const TrainIcons = () => {
 
       try {
         const data = await getTrainTimetableBulk(missingTripIds);
-        const timetables = data.filter(isTimetableData);
-        cacheTimetables(timetables);
-        for (const timetable of timetables) {
-          failedPrefetchTripIdsRef.current.delete(timetable.tripId);
+        cacheTimetables(data.filter(isTimetableData));
+        const missingRetryAt = Date.now() + MISSING_TIMETABLE_RETRY_MS;
+        for (const [index, tripId] of missingTripIds.entries()) {
+          if (isTimetableData(data[index])) {
+            prefetchRetryAtRef.current.delete(tripId);
+          } else {
+            prefetchRetryAtRef.current.set(tripId, missingRetryAt);
+          }
         }
       } catch {
         if (!force) {
+          const failedRetryAt = Date.now() + FAILED_PREFETCH_RETRY_MS;
           for (const tripId of missingTripIds) {
-            failedPrefetchTripIdsRef.current.add(tripId);
+            prefetchRetryAtRef.current.set(tripId, failedRetryAt);
           }
         }
       } finally {

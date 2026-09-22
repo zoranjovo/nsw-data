@@ -63,8 +63,8 @@ export const getTrainTimetable = (tripId: string): Promise<TimetableData> =>
     "Failed to load timetable data"
   );
 
-export const getTrainTimetableBulk = (tripIds: string[]): Promise<TimetableData[]> =>
+export const getTrainTimetableBulk = (tripIds: string[]): Promise<(TimetableData | null)[]> =>
   request(
-    () => axios.post<TimetableData[]>(`${API_URL}/trains/timetable/bulk`, { tripIds }),
+    () => axios.post<(TimetableData | null)[]>(`${API_URL}/trains/timetable/bulk`, { tripIds }),
     "Failed to load timetable data"
   );
