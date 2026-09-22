@@ -104,6 +104,10 @@ const mergeStopTimeUpdates = (
   return merged;
 };
 
+const isSameServiceDate = (a: TripUpdateEntry, b: TripUpdateEntry): boolean => {
+  return a.serviceDate == null || b.serviceDate == null || a.serviceDate === b.serviceDate;
+};
+
 export const mergeTripUpdateEntries = (
   previousEntries: TripUpdateEntry[],
   incomingEntries: TripUpdateEntry[]
@@ -113,7 +117,7 @@ export const mergeTripUpdateEntries = (
 
   for (const incomingEntry of incomingEntries) {
     const previousEntry = previousByTripId.get(incomingEntry.tripId);
-    if (!previousEntry) {
+    if (!previousEntry || !isSameServiceDate(previousEntry, incomingEntry)) {
       merged.push(incomingEntry);
       continue;
     }
