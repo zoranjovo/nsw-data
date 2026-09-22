@@ -37,6 +37,15 @@ const LEGACY_ASSET_FILES = [
   "tracks.json",
 ];
 const STATIC_ASSETS_ZONE = "Australia/Sydney";
+const WEEKDAY_COLUMNS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+] as const;
 
 type CsvRecord = Record<string, string | undefined>;
 
@@ -257,15 +266,68 @@ export const buildStaticSnapshot = async (
   snapshotDate: string
 ): Promise<StaticTimetableSnapshot> => {
   const directory = await unzipper.Open.file(zipPath);
-  const readEntry = async (fileName: string, onRecord: (record: CsvRecord) => void) => {
+  const readEntry = async (
+    fileName: string,
+    onRecord: (record: CsvRecord) => void,
+    options?: { optional?: boolean }
+  ): Promise<boolean> => {
     const file = directory.files.find(
       (candidate) => candidate.path.split("/").pop()?.toLowerCase() === fileName
     );
     if (!file) {
+      if (options?.optional) {
+        return false;
+      }
       throw new Error(`GTFS zip has no ${fileName}`);
     }
     await consumeCsv(file.stream(), onRecord);
+    return true;
   };
+
+  const windowDays = [-1, 0, 1].map((offset) => {
+    const day = DateTime.fromISO(snapshotDate, { zone: STATIC_ASSETS_ZONE }).plus({ days: offset });
+    return { date: day.toFormat("yyyyMMdd"), weekday: WEEKDAY_COLUMNS[day.weekday - 1] };
+  });
+  const activeDatesByServiceId = new Map<string, Set<string>>();
+  const activeDates = (serviceId: string) => {
+    const dates = activeDatesByServiceId.get(serviceId) ?? new Set<string>();
+    activeDatesByServiceId.set(serviceId, dates);
+    return dates;
+  };
+  const hasCalendar = await readEntry(
+    "calendar.txt",
+    (record) => {
+      const serviceId = record.service_id?.trim();
+      if (!serviceId) {
+        return;
+      }
+      const startDate = record.start_date?.trim() ?? "";
+      const endDate = record.end_date?.trim() ?? "";
+      for (const { date, weekday } of windowDays) {
+        if (record[weekday]?.trim() === "1" && startDate <= date && date <= endDate) {
+          activeDates(serviceId).add(date);
+        }
+      }
+    },
+    { optional: true }
+  );
+  const hasCalendarDates = await readEntry(
+    "calendar_dates.txt",
+    (record) => {
+      const serviceId = record.service_id?.trim();
+      const date = record.date?.trim();
+      if (!serviceId || !windowDays.some((day) => day.date === date)) {
+        return;
+      }
+      const exceptionType = record.exception_type?.trim();
+      if (exceptionType === "1") {
+        activeDates(serviceId).add(date as string);
+      } else if (exceptionType === "2") {
+        activeDates(serviceId).delete(date as string);
+      }
+    },
+    { optional: true }
+  );
 
   const stopsById = new Map<string, StaticStop>();
   await readEntry("stops.txt", (record) => {
@@ -305,7 +367,7 @@ export const buildStaticSnapshot = async (
     });
   });
 
-  const tripsById = new Map<string, StaticTrip>();
+  const allTrips: StaticTrip[] = [];
   const routeCountsByShapeId = new Map<string, Map<string, number>>();
   await readEntry("trips.txt", (record) => {
     const tripId = record.trip_id?.trim();
@@ -313,7 +375,7 @@ export const buildStaticSnapshot = async (
     if (!tripId || !routeId) {
       return;
     }
-    tripsById.set(tripId, {
+    allTrips.push({
       tripId,
       routeId,
       serviceId: record.service_id?.trim() || null,
@@ -326,6 +388,17 @@ export const buildStaticSnapshot = async (
       routeCountsByShapeId.set(shapeId, routeCounts);
     }
   });
+
+  const runningTrips = allTrips.filter(
+    (trip) => trip.serviceId != null && (activeDatesByServiceId.get(trip.serviceId)?.size ?? 0) > 0
+  );
+  if ((hasCalendar || hasCalendarDates) && runningTrips.length === 0) {
+    console.error(`GTFS calendar has no trips running around ${snapshotDate}, loading every trip`);
+  }
+  const tripsById = new Map<string, StaticTrip>();
+  for (const trip of runningTrips.length > 0 ? runningTrips : allTrips) {
+    tripsById.set(trip.tripId, trip);
+  }
 
   const stopTimesByTripId = new Map<string, StaticStopTime[]>();
   let stopTimeCount = 0;
