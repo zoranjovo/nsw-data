@@ -588,7 +588,7 @@ const sampleAlongTrack = (
   const count = times.length;
 
   if (count === 1) {
-    return samplePathAtDistance(path, distances[0], 0, 0);
+    return samplePathAtDistance(path, distances[0], motion.direction, 0);
   }
 
   if (nowEpochSeconds <= times[0]) {
@@ -597,7 +597,7 @@ const sampleAlongTrack = (
     return samplePathAtDistance(
       path,
       distances[0],
-      distances[1] - distances[0],
+      distances[1] - distances[0] || motion.direction,
       duration > 0 ? legMeters / duration : 0
     );
   }
@@ -610,7 +610,7 @@ const sampleAlongTrack = (
     return samplePathAtDistance(
       path,
       distances[lastIndex],
-      distances[lastIndex] - distances[previousIndex],
+      distances[lastIndex] - distances[previousIndex] || motion.direction,
       duration > 0 ? legMeters / duration : 0
     );
   }
@@ -626,9 +626,34 @@ const sampleAlongTrack = (
   return samplePathAtDistance(
     path,
     distanceMeters,
-    distances[nextIndex] - distances[previousIndex],
+    distances[nextIndex] - distances[previousIndex] || motion.direction,
     duration > 0 ? legMeters / duration : 0
   );
+};
+
+const movingLegBearing = (
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  index: number
+): number => {
+  const isAtIndex = (other: number) =>
+    latitudes[other] === latitudes[index] && longitudes[other] === longitudes[index];
+  for (let next = index + 1; next < latitudes.length; next++) {
+    if (!isAtIndex(next)) {
+      return computeBearing(latitudes[index], longitudes[index], latitudes[next], longitudes[next]);
+    }
+  }
+  for (let previous = index - 1; previous >= 0; previous--) {
+    if (!isAtIndex(previous)) {
+      return computeBearing(
+        latitudes[previous],
+        longitudes[previous],
+        latitudes[index],
+        longitudes[index]
+      );
+    }
+  }
+  return 0;
 };
 
 export const sampleTrainMotion = (
@@ -652,32 +677,20 @@ export const sampleTrainMotion = (
   }
 
   if (count === 1 || nowEpochSeconds <= times[0]) {
-    const nextIndex = count > 1 ? 1 : 0;
     return {
       latitude: latitudes[0],
       longitude: longitudes[0],
-      bearing: computeBearing(
-        latitudes[0],
-        longitudes[0],
-        latitudes[nextIndex],
-        longitudes[nextIndex]
-      ),
+      bearing: movingLegBearing(latitudes, longitudes, 0),
       speedMetersPerSecond: 0,
     };
   }
 
   const lastIndex = count - 1;
   if (nowEpochSeconds >= times[lastIndex]) {
-    const previousIndex = lastIndex - 1;
     return {
       latitude: latitudes[lastIndex],
       longitude: longitudes[lastIndex],
-      bearing: computeBearing(
-        latitudes[previousIndex],
-        longitudes[previousIndex],
-        latitudes[lastIndex],
-        longitudes[lastIndex]
-      ),
+      bearing: movingLegBearing(latitudes, longitudes, lastIndex),
       speedMetersPerSecond: 0,
     };
   }
@@ -698,12 +711,7 @@ export const sampleTrainMotion = (
       latitudes[previousIndex] + (latitudes[nextIndex] - latitudes[previousIndex]) * progress,
     longitude:
       longitudes[previousIndex] + (longitudes[nextIndex] - longitudes[previousIndex]) * progress,
-    bearing: computeBearing(
-      latitudes[previousIndex],
-      longitudes[previousIndex],
-      latitudes[nextIndex],
-      longitudes[nextIndex]
-    ),
+    bearing: movingLegBearing(latitudes, longitudes, previousIndex),
     speedMetersPerSecond: duration > 0 ? legMeters / duration : 0,
   };
 };
