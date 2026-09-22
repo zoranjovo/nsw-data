@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
-import { getRouteShortNameFromRouteId } from "@/lib/trainRouteId";
+import { createRouteShortNameLookup } from "@/lib/trainRouteId";
 import { useAppContext } from "@/providers/AppProvider";
 import type { TrainPosition } from "@/types/train/train";
 import styles from "./SelectionInfoPanel.module.css";
@@ -36,7 +36,7 @@ const formatUpdatedAt = (timestamp: number | null, nowEpochSeconds: number): str
 };
 
 const formatSpeed = (speed: number | null): string =>
-  speed == null ? "—" : `${Math.round(speed)} km/h`;
+  speed == null ? "—" : `${Math.round(speed * 3.6)} km/h`;
 
 const formatBearing = (bearing: number | null): string =>
   bearing == null ? "—" : `${Math.round(bearing)}°`;
@@ -50,7 +50,7 @@ const RawDetails = ({
 }) => {
   const timestampStr =
     train.timestamp != null
-      ? DateTime.fromSeconds(train.timestamp).toLocaleString({
+      ? DateTime.fromSeconds(train.timestamp, { zone: "Australia/Sydney" }).toLocaleString({
           hour: "numeric",
           minute: "2-digit",
           second: "2-digit",
@@ -185,24 +185,21 @@ export const SelectionInfoPanel = () => {
   const pendingTrainRef = useRef<TrainPosition | null>(null);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const getRouteShortName = useMemo(
+    () => createRouteShortNameLookup(trainStatic.tracks.features),
+    [trainStatic.tracks.features]
+  );
+
   const routeShortName = useMemo(() => {
     if (!displayedTrain) return null;
-    return getRouteShortNameFromRouteId(displayedTrain.routeId) ?? displayedTrain.routeId ?? null;
-  }, [displayedTrain]);
+    return getRouteShortName(displayedTrain.routeId) ?? displayedTrain.routeId ?? null;
+  }, [displayedTrain, getRouteShortName]);
 
   const routeColor = useMemo(() => {
     if (!displayedTrain) return "#6b7280";
-    const routeIdPrefix = getRouteShortNameFromRouteId(displayedTrain.routeId) ?? "";
     const track =
-      (routeIdPrefix &&
-        trainStatic.tracks.features.find(
-          (f) => getRouteShortNameFromRouteId(f.properties.route_id) === routeIdPrefix
-        )) ||
-      (routeShortName &&
-        trainStatic.tracks.features.find(
-          (f) => f.properties.route_short_name === routeShortName
-        )) ||
-      undefined;
+      trainStatic.tracks.features.find((f) => f.properties.route_id === displayedTrain.routeId) ??
+      trainStatic.tracks.features.find((f) => f.properties.route_short_name === routeShortName);
     return resolveTrainLineColor(
       track?.properties.route_short_name ?? routeShortName ?? "",
       track?.properties.route_color ?? ""
