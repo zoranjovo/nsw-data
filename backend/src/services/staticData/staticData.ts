@@ -37,6 +37,7 @@ const LEGACY_ASSET_FILES = [
   "tracks.json",
 ];
 const STATIC_ASSETS_ZONE = "Australia/Sydney";
+const SERVICE_DAY_START = { hours: 3, minutes: 30 };
 const WEEKDAY_COLUMNS = [
   "monday",
   "tuesday",
@@ -73,8 +74,8 @@ type StaticAssetsMeta = {
 
 let updateInFlight: Promise<void> | null = null;
 
-const sydneyTodayIsoDate = (): string => {
-  return DateTime.now().setZone(STATIC_ASSETS_ZONE).toISODate() ?? "";
+const sydneyServiceDate = (): string => {
+  return DateTime.now().setZone(STATIC_ASSETS_ZONE).minus(SERVICE_DAY_START).toISODate() ?? "";
 };
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -526,7 +527,7 @@ export const updateStaticTimetable = async (): Promise<void> => {
   }
 
   updateInFlight = (async () => {
-    const snapshotDate = sydneyTodayIsoDate();
+    const snapshotDate = sydneyServiceDate();
     const zipPath = resolve(ASSETS_DIR, GTFS_ZIP_FILE);
     const hasZip = await fileExists(zipPath);
     const meta = await readStaticAssetsMeta(ASSETS_DIR);
