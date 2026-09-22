@@ -6,6 +6,7 @@ import { getTripTimetableByTripId } from "../services/timetable/timetable";
 import { getTrainPositionsData } from "../services/trainPositions/trainPositions";
 import { getTripUpdatesData } from "../services/tripUpdates/tripUpdates";
 import type { TripUpdates, TripUpdatesResponse } from "../types/train/tripUpdates";
+import { describeError } from "../utils/errors";
 
 export const trainsRouter = Router();
 const THIRTY_SECOND_WINDOW_MS = 30_000;
@@ -50,7 +51,7 @@ trainsRouter.get("/tracks", tracksRateLimiter, async (_req, res) => {
     const { tracks } = await getRouteStaticAssets();
     return res.json(tracks);
   } catch (error) {
-    console.error("Error returning tracks:", error);
+    console.error(`Error returning tracks: ${describeError(error)}`);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -67,7 +68,7 @@ trainsRouter.get("/stops", stopsRateLimiter, async (req, res) => {
       );
     }
   } catch (error) {
-    console.error("Error returning stops:", error);
+    console.error(`Error returning stops: ${describeError(error)}`);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -80,7 +81,7 @@ trainsRouter.get("/realtime", realtimeRateLimiter, async (_req, res) => {
     ]);
     return res.json({ positions, tripUpdates: toTripUpdatesResponse(tripUpdates) });
   } catch (error) {
-    console.error("Error fetching realtime data:", error);
+    console.error(`Error fetching realtime data: ${describeError(error)}`);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -90,7 +91,7 @@ trainsRouter.get("/alerts", alertsRateLimiter, async (_req, res) => {
     const { alerts, fetchedAt } = await getAlerts();
     return res.json({ alerts, fetchedAt });
   } catch (error) {
-    console.error("Error fetching alerts:", error);
+    console.error(`Error fetching alerts: ${describeError(error)}`);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -103,7 +104,7 @@ trainsRouter.get("/timetable/:tripId", timetableSingleRateLimiter, async (req, r
     }
     return res.json(timetable);
   } catch (error) {
-    console.error("Error fetching timetable:", error);
+    console.error(`Error fetching timetable: ${describeError(error)}`);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -114,7 +115,7 @@ trainsRouter.post("/timetable/bulk", timetableBulkRateLimiter, async (req, res) 
     const timetables = tripIds.map(getTripTimetableByTripId);
     return res.json(timetables);
   } catch (error) {
-    console.error("Error fetching timetables:", error);
+    console.error(`Error fetching timetables: ${describeError(error)}`);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
