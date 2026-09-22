@@ -130,11 +130,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }));
     startRealtimePolling(
       (data) => {
-        setTrainRealtime({
-          status: "ready",
-          positions: data.positions,
-          tripUpdates: data.tripUpdates,
-          error: null,
+        setTrainRealtime((prev) => {
+          const isNewer =
+            data.positions.fetchedAt > prev.positions.fetchedAt ||
+            data.tripUpdates.fetchedAt > prev.tripUpdates.fetchedAt;
+          if (!isNewer) {
+            return prev.status === "ready" && prev.error == null
+              ? prev
+              : { ...prev, status: "ready", error: null };
+          }
+          return {
+            status: "ready",
+            positions: data.positions,
+            tripUpdates: data.tripUpdates,
+            error: null,
+          };
         });
       },
       (error) => {
