@@ -64,10 +64,7 @@ export type StaticTrip = {
 };
 
 export type StaticStopTime = {
-  tripId: string;
   stopId: string;
-  arrivalTime: string | null;
-  departureTime: string | null;
   arrivalSeconds: number | null;
   departureSeconds: number | null;
   stopSequence: number;

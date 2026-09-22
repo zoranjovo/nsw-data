@@ -410,10 +410,7 @@ export const buildStaticSnapshot = async (
       return;
     }
     const stopTime: StaticStopTime = {
-      tripId: trip.tripId,
-      stopId,
-      arrivalTime: record.arrival_time?.trim() || null,
-      departureTime: record.departure_time?.trim() || null,
+      stopId: stopsById.get(stopId)?.stopId ?? stopId,
       arrivalSeconds: parseGtfsTime(record.arrival_time),
       departureSeconds: parseGtfsTime(record.departure_time),
       stopSequence,

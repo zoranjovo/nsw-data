@@ -98,6 +98,14 @@ const resolveServiceDateForTrip = (args: {
   return bestDate;
 };
 
+const formatGtfsTime = (seconds: number | null): string | null => {
+  if (seconds == null) {
+    return null;
+  }
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor((seconds % 3600) / 60))}:${pad(seconds % 60)}`;
+};
+
 const delayBetween = (realtime: number | null, scheduled: number | null): number | null => {
   return realtime == null || scheduled == null ? null : realtime - scheduled;
 };
@@ -174,8 +182,8 @@ export const mergeStopTimeUpdates = (
       skipped: matchedUpdate?.skipped ?? false,
       latitude: stop?.latitude ?? null,
       longitude: stop?.longitude ?? null,
-      scheduledArrival: stopTime.arrivalTime,
-      scheduledDeparture: stopTime.departureTime,
+      scheduledArrival: formatGtfsTime(stopTime.arrivalSeconds),
+      scheduledDeparture: formatGtfsTime(stopTime.departureSeconds),
       scheduledArrivalSeconds: stopTime.arrivalSeconds,
       scheduledDepartureSeconds: stopTime.departureSeconds,
       scheduledArrivalTimestamp,
