@@ -1,5 +1,6 @@
 export interface TripUpdateStopTime {
   stopId: string;
+  stopSequence: number | null;
   arrivalDelaySeconds: number | null;
   departureDelaySeconds: number | null;
   realtimeArrivalTimestamp: number | null;

@@ -104,20 +104,27 @@ export const mergeStopTimeUpdates = (
   serviceDate: string,
   stopsById: Map<string, StaticStop>
 ): TimetableStop[] => {
+  const updateIndexBySequence = new Map<number, number>();
+  for (const [index, update] of stopUpdates.entries()) {
+    if (update.stopSequence != null) {
+      updateIndexBySequence.set(update.stopSequence, index);
+    }
+  }
   let updateIndex = 0;
 
   return stopTimes.map((stopTime) => {
-    let matchedUpdate: TripUpdateStopTime | null = null;
+    let matchedIndex = updateIndexBySequence.get(stopTime.stopSequence) ?? -1;
 
-    for (let index = updateIndex; index < stopUpdates.length; index += 1) {
-      const candidate = stopUpdates[index];
-      if (candidate.stopId !== stopTime.stopId) {
-        continue;
+    for (let index = updateIndex; matchedIndex === -1 && index < stopUpdates.length; index += 1) {
+      if (stopUpdates[index].stopId === stopTime.stopId) {
+        matchedIndex = index;
       }
-      matchedUpdate = candidate;
-      updateIndex = index + 1;
-      break;
     }
+    if (matchedIndex !== -1) {
+      updateIndex = matchedIndex + 1;
+    }
+    const matchedUpdate: TripUpdateStopTime | null =
+      matchedIndex === -1 ? null : stopUpdates[matchedIndex];
 
     const stop = stopsById.get(stopTime.stopId);
     const scheduledArrivalTimestamp = toUnixTimestampForSydneyServiceDate(

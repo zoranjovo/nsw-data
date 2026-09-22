@@ -27,6 +27,7 @@ const mergeStopTimeUpdate = (
 ): TripUpdateStopTime => {
   return {
     stopId: incoming.stopId,
+    stopSequence: incoming.stopSequence ?? previous?.stopSequence ?? null,
     arrivalDelaySeconds: incoming.arrivalDelaySeconds ?? previous?.arrivalDelaySeconds ?? null,
     departureDelaySeconds:
       incoming.departureDelaySeconds ?? previous?.departureDelaySeconds ?? null,
@@ -39,6 +40,13 @@ const mergeStopTimeUpdate = (
       normalizeGtfsRealtimeEpoch(previous?.realtimeDepartureTimestamp) ??
       null,
   };
+};
+
+const isSameStop = (a: TripUpdateStopTime, b: TripUpdateStopTime): boolean => {
+  if (a.stopSequence != null && b.stopSequence != null) {
+    return a.stopSequence === b.stopSequence;
+  }
+  return a.stopId === b.stopId;
 };
 
 const mergeStopTimeUpdates = (
@@ -64,7 +72,7 @@ const mergeStopTimeUpdates = (
       if (usedPrevious[index]) {
         continue;
       }
-      if (previous[index].stopId !== nextStop.stopId) {
+      if (!isSameStop(previous[index], nextStop)) {
         continue;
       }
       matchedIndex = index;
@@ -76,7 +84,7 @@ const mergeStopTimeUpdates = (
         if (usedPrevious[index]) {
           continue;
         }
-        if (previous[index].stopId !== nextStop.stopId) {
+        if (!isSameStop(previous[index], nextStop)) {
           continue;
         }
         matchedIndex = index;
@@ -145,6 +153,7 @@ export const toStopTimeUpdate = (entity: FeedEntity): TripUpdateEntry | null => 
 
   const stopTimeUpdates: TripUpdateStopTime[] = (tripUpdate.stopTimeUpdate ?? []).map((update) => ({
     stopId: update.stopId ?? "",
+    stopSequence: optionalField(update, "stopSequence"),
     arrivalDelaySeconds: optionalField(update.arrival, "delay"),
     departureDelaySeconds: optionalField(update.departure, "delay"),
     realtimeArrivalTimestamp:
