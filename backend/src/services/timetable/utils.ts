@@ -134,6 +134,10 @@ export const mergeStopTimeUpdates = (
     }
     const matchedUpdate: TripUpdateStopTime | null =
       matchedIndex === -1 ? null : stopUpdates[matchedIndex];
+    const timingUpdate = matchedUpdate?.skipped || matchedUpdate?.noData ? null : matchedUpdate;
+    if (matchedUpdate?.noData) {
+      propagatedDelaySeconds = null;
+    }
 
     const stop = stopsById.get(stopTime.stopId);
     const scheduledArrivalTimestamp = toUnixTimestampForSydneyServiceDate(
@@ -144,16 +148,16 @@ export const mergeStopTimeUpdates = (
       serviceDate,
       stopTime.departureSeconds
     );
-    const rawRealtimeArrival = normalizeGtfsRealtimeEpoch(matchedUpdate?.realtimeArrivalTimestamp);
+    const rawRealtimeArrival = normalizeGtfsRealtimeEpoch(timingUpdate?.realtimeArrivalTimestamp);
     const rawRealtimeDeparture = normalizeGtfsRealtimeEpoch(
-      matchedUpdate?.realtimeDepartureTimestamp
+      timingUpdate?.realtimeDepartureTimestamp
     );
     const arrivalDelaySeconds =
-      matchedUpdate?.arrivalDelaySeconds ??
+      timingUpdate?.arrivalDelaySeconds ??
       delayBetween(rawRealtimeArrival, scheduledArrivalTimestamp) ??
       propagatedDelaySeconds;
     const departureDelaySeconds =
-      matchedUpdate?.departureDelaySeconds ??
+      timingUpdate?.departureDelaySeconds ??
       delayBetween(rawRealtimeDeparture, scheduledDepartureTimestamp) ??
       arrivalDelaySeconds;
     propagatedDelaySeconds = departureDelaySeconds;
@@ -167,6 +171,7 @@ export const mergeStopTimeUpdates = (
       stopName: stop?.stopName ?? null,
       stopSequence: stopTime.stopSequence,
       hasRealtimeStopUpdate: matchedUpdate != null,
+      skipped: matchedUpdate?.skipped ?? false,
       latitude: stop?.latitude ?? null,
       longitude: stop?.longitude ?? null,
       scheduledArrival: stopTime.arrivalTime,
@@ -213,7 +218,8 @@ const getStopOrderingMoment = (stop: TimetableStop): number | null => {
   );
 };
 
-export const buildProgress = (stops: TimetableStop[]): TimetableProgress | null => {
+export const buildProgress = (timetableStops: TimetableStop[]): TimetableProgress | null => {
+  const stops = timetableStops.filter((stop) => !stop.skipped);
   if (stops.length === 0) {
     return null;
   }
@@ -289,6 +295,7 @@ export const buildTrainTimetable = (args: {
     routeLongName: route?.routeLongName ?? null,
     tripHeadsign: trip.tripHeadsign,
     vehicleId: args.tripUpdate?.vehicleId ?? null,
+    cancelled: args.tripUpdate?.cancelled ?? false,
     tripUpdatesFetchedAt: args.tripUpdatesFetchedAt || null,
     staticTimetableFetchedAt: args.staticTimetableFetchedAt || null,
     progress: buildProgress(stops),
