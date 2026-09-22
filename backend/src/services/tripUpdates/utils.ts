@@ -1,5 +1,5 @@
 import type { TripUpdateEntry, TripUpdateStopTime } from "../../types/train/tripUpdates";
-import type { DecodedFeed } from "../gtfsRealtime";
+import { type DecodedFeed, optionalField } from "../gtfsRealtime";
 
 type FeedEntity = DecodedFeed["entity"][number];
 
@@ -141,8 +141,8 @@ export const toStopTimeUpdate = (entity: FeedEntity): TripUpdateEntry | null => 
 
   const stopTimeUpdates: TripUpdateStopTime[] = (tripUpdate.stopTimeUpdate ?? []).map((update) => ({
     stopId: update.stopId ?? "",
-    arrivalDelaySeconds: update.arrival?.delay ?? null,
-    departureDelaySeconds: update.departure?.delay ?? null,
+    arrivalDelaySeconds: optionalField(update.arrival, "delay"),
+    departureDelaySeconds: optionalField(update.departure, "delay"),
     realtimeArrivalTimestamp:
       update.arrival?.time == null ? null : normalizeGtfsRealtimeEpoch(Number(update.arrival.time)),
     realtimeDepartureTimestamp:

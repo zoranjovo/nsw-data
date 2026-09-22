@@ -1,5 +1,5 @@
 import type { TrainAlert } from "../../types/train/alerts";
-import type { DecodedFeed } from "../gtfsRealtime";
+import { type DecodedFeed, optionalField } from "../gtfsRealtime";
 
 const getTranslatedText = (
   value: { translation?: Array<{ text?: string }> | null } | null | undefined
@@ -24,8 +24,8 @@ export const toTrainAlerts = (feed: DecodedFeed): TrainAlert[] => {
       descriptionText: getTranslatedText(alert.descriptionText),
       url: getTranslatedText(alert.url),
       activePeriods: (alert.activePeriod ?? []).map((period) => ({
-        start: period.start == null ? null : Number(period.start),
-        end: period.end == null ? null : Number(period.end),
+        start: optionalField(period, "start") == null ? null : Number(period.start),
+        end: optionalField(period, "end") == null ? null : Number(period.end),
       })),
       informedEntities: (alert.informedEntity ?? []).map((informedEntity) => ({
         routeId: informedEntity.routeId ?? null,
