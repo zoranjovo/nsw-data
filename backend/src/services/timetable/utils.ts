@@ -98,6 +98,14 @@ const resolveServiceDateForTrip = (args: {
   return bestDate;
 };
 
+const delayBetween = (realtime: number | null, scheduled: number | null): number | null => {
+  return realtime == null || scheduled == null ? null : realtime - scheduled;
+};
+
+const addDelay = (scheduled: number | null, delaySeconds: number | null): number | null => {
+  return scheduled == null || delaySeconds == null ? null : scheduled + delaySeconds;
+};
+
 export const mergeStopTimeUpdates = (
   stopTimes: StaticStopTime[],
   stopUpdates: TripUpdateStopTime[],
@@ -111,6 +119,7 @@ export const mergeStopTimeUpdates = (
     }
   }
   let updateIndex = 0;
+  let propagatedDelaySeconds: number | null = null;
 
   return stopTimes.map((stopTime) => {
     let matchedIndex = updateIndexBySequence.get(stopTime.stopSequence) ?? -1;
@@ -139,16 +148,19 @@ export const mergeStopTimeUpdates = (
     const rawRealtimeDeparture = normalizeGtfsRealtimeEpoch(
       matchedUpdate?.realtimeDepartureTimestamp
     );
+    const arrivalDelaySeconds =
+      matchedUpdate?.arrivalDelaySeconds ??
+      delayBetween(rawRealtimeArrival, scheduledArrivalTimestamp) ??
+      propagatedDelaySeconds;
+    const departureDelaySeconds =
+      matchedUpdate?.departureDelaySeconds ??
+      delayBetween(rawRealtimeDeparture, scheduledDepartureTimestamp) ??
+      arrivalDelaySeconds;
+    propagatedDelaySeconds = departureDelaySeconds;
     const realtimeArrivalTimestamp =
-      rawRealtimeArrival ??
-      (scheduledArrivalTimestamp == null || matchedUpdate?.arrivalDelaySeconds == null
-        ? null
-        : scheduledArrivalTimestamp + matchedUpdate.arrivalDelaySeconds);
+      rawRealtimeArrival ?? addDelay(scheduledArrivalTimestamp, arrivalDelaySeconds);
     const realtimeDepartureTimestamp =
-      rawRealtimeDeparture ??
-      (scheduledDepartureTimestamp == null || matchedUpdate?.departureDelaySeconds == null
-        ? null
-        : scheduledDepartureTimestamp + matchedUpdate.departureDelaySeconds);
+      rawRealtimeDeparture ?? addDelay(scheduledDepartureTimestamp, departureDelaySeconds);
 
     return {
       stopId: stopTime.stopId,
@@ -165,8 +177,8 @@ export const mergeStopTimeUpdates = (
       scheduledDepartureTimestamp,
       realtimeArrivalTimestamp,
       realtimeDepartureTimestamp,
-      arrivalDelaySeconds: matchedUpdate?.arrivalDelaySeconds ?? null,
-      departureDelaySeconds: matchedUpdate?.departureDelaySeconds ?? null,
+      arrivalDelaySeconds,
+      departureDelaySeconds,
     };
   });
 };
