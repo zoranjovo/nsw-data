@@ -36,7 +36,7 @@ const formatUpdatedAt = (timestamp: number | null, nowEpochSeconds: number): str
 };
 
 const formatSpeed = (speed: number | null): string =>
-  speed == null ? "—" : `${Math.round(speed)} km/h`;
+  speed == null ? "—" : `${Math.round(speed * 3.6)} km/h`;
 
 const formatBearing = (bearing: number | null): string =>
   bearing == null ? "—" : `${Math.round(bearing)}°`;
