@@ -1,15 +1,17 @@
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { addAbortSignal, pipeline } from "node:stream";
+import { pipeline } from "node:stream";
+import { pipeline as pipelineAsync } from "node:stream/promises";
 import axios from "axios";
 import { parse } from "csv-parse";
 import { DateTime } from "luxon";
 import unzipper from "unzipper";
-import type { TrainStopsResponse } from "../../types/train/stops";
 import type {
   StaticRoute,
   StaticStop,
   StaticStopTime,
+  StaticTimetableSnapshot,
   StaticTrip,
 } from "../../types/train/timetable";
 import type {
@@ -18,26 +20,27 @@ import type {
   TrainTracksResponse,
 } from "../../types/train/tracks";
 import { debugLog } from "../../utils/debug";
+import { describeError } from "../../utils/errors";
+import { getStaticTimetable, setStaticTimetable } from "../timetable/store";
 
 const TFNSW_STATIC_TIMETABLE_URL = "https://api.transport.nsw.gov.au/v1/gtfs/schedule/sydneytrains";
 const STATIC_DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 
 const ASSETS_DIR = resolve(process.cwd(), "temp-assets");
-const STATIC_ASSETS_ZONE = "Australia/Sydney";
+const GTFS_ZIP_FILE = "gtfs.zip";
 const STATIC_ASSETS_META_FILE = "static-assets-meta.json";
-
-const REQUIRED_ASSET_FILES = [
+const LEGACY_ASSET_FILES = [
   "stops.json",
   "routes.json",
   "trips.json",
   "stopTimes.json",
   "tracks.json",
-] as const;
+];
+const STATIC_ASSETS_ZONE = "Australia/Sydney";
 
 type CsvRecord = Record<string, string | undefined>;
 
 type ShapePoint = {
-  shapeId: string;
   latitude: number;
   longitude: number;
   sequence: number;
@@ -55,32 +58,11 @@ type RouteMeta = {
   routeTextColor: string;
 };
 
-type TripShape = {
-  routeId: string;
-  shapeId: string;
-};
-
-type ParsedGtfs = {
-  stops: StaticStop[];
-  routes: StaticRoute[];
-  trips: StaticTrip[];
-  stopTimes: StaticStopTime[];
-  shapes: ShapePoint[];
-  routeMetaById: Map<string, RouteMeta>;
-  tripShapes: TripShape[];
-};
-
-let routeAssetsCache: {
-  sourceKey: string;
-  stops: TrainStopsResponse;
-  tracks: TrainTracksResponse;
-} | null = null;
-
 type StaticAssetsMeta = {
   fetchedDate: string;
 };
 
-let refreshNewDayInFlight: Promise<boolean> | null = null;
+let updateInFlight: Promise<void> | null = null;
 
 const sydneyTodayIsoDate = (): string => {
   return DateTime.now().setZone(STATIC_ASSETS_ZONE).toISODate() ?? "";
@@ -118,30 +100,10 @@ const readStaticAssetsMeta = async (assetDir: string): Promise<StaticAssetsMeta 
   }
 };
 
-const writeStaticAssetsMeta = async (assetDir: string, fetchedDate: string): Promise<void> => {
-  await mkdir(assetDir, { recursive: true });
-  const meta: StaticAssetsMeta = { fetchedDate };
-  await writeFile(resolve(assetDir, STATIC_ASSETS_META_FILE), JSON.stringify(meta), "utf8");
-};
-
-const allRequiredAssetFilesExist = async (assetDir: string): Promise<boolean> => {
-  const results = await Promise.all(
-    REQUIRED_ASSET_FILES.map((fileName) => fileExists(resolve(assetDir, fileName)))
-  );
-  return results.every(Boolean);
-};
-
-const ensureStaticAssetsMetaForMigration = async (assetDir: string): Promise<void> => {
-  const existing = await readStaticAssetsMeta(assetDir);
-  if (existing) {
-    return;
-  }
-  if (!(await allRequiredAssetFilesExist(assetDir))) {
-    return;
-  }
-  const today = sydneyTodayIsoDate();
-  await writeStaticAssetsMeta(assetDir, today);
-  debugLog("STATIC", `wrote migration static assets meta fetchedDate=${today}`);
+const writeFileAtomic = async (filePath: string, content: string): Promise<void> => {
+  const tempPath = `${filePath}.tmp`;
+  await writeFile(tempPath, content, "utf8");
+  await rename(tempPath, filePath);
 };
 
 const parseNumber = (value: string | undefined): number | null => {
@@ -224,188 +186,14 @@ const consumeCsv = async (
   }
 };
 
-const parseGtfsZip = async (
-  stream: NodeJS.ReadableStream,
-  signal: AbortSignal
-): Promise<ParsedGtfs> => {
-  const zipEntries = new Set([
-    "routes.txt",
-    "stop_times.txt",
-    "stops.txt",
-    "trips.txt",
-    "shapes.txt",
-  ]);
-  const stops: StaticStop[] = [];
-  const routes: StaticRoute[] = [];
-  const trips: StaticTrip[] = [];
-  const stopTimes: StaticStopTime[] = [];
-  const shapes: ShapePoint[] = [];
-  const routeMetaById = new Map<string, RouteMeta>();
-  const tripShapes: TripShape[] = [];
-
-  const zipStream = unzipper.Parse({ forceStream: true });
-  let currentEntry: unzipper.Entry | null = null;
-  zipStream.on("error", (error) => {
-    currentEntry?.destroy(error);
-  });
-  pipeline(stream, addAbortSignal(signal, zipStream), () => {});
-
-  for await (const entry of zipStream as AsyncIterable<unzipper.Entry>) {
-    currentEntry = entry;
-    const fileName = entry.path.split("/").pop()?.toLowerCase() ?? "";
-    if (!zipEntries.has(fileName)) {
-      entry.autodrain();
-      continue;
-    }
-
-    if (fileName === "stops.txt") {
-      await consumeCsv(entry, (record) => {
-        const stopId = record.stop_id?.trim();
-        if (!stopId) {
-          return;
-        }
-        stops.push({
-          stopId,
-          stopName: record.stop_name?.trim() || null,
-          latitude: parseNumber(record.stop_lat),
-          longitude: parseNumber(record.stop_lon),
-        });
-      });
-      continue;
-    }
-
-    if (fileName === "routes.txt") {
-      await consumeCsv(entry, (record) => {
-        const routeId = record.route_id?.trim();
-        if (!routeId) {
-          return;
-        }
-        routes.push({
-          routeId,
-          routeShortName: record.route_short_name?.trim() || null,
-          routeLongName: record.route_long_name?.trim() || null,
-        });
-        routeMetaById.set(routeId, {
-          routeId,
-          agencyId: record.agency_id?.trim() || "",
-          routeShortName: record.route_short_name?.trim() || "",
-          routeLongName: record.route_long_name?.trim() || "",
-          routeDesc: record.route_desc?.trim() || "",
-          routeType: record.route_type?.trim() || "",
-          routeColor: normalizeHexColor(record.route_color),
-          routeTextColor: normalizeHexColor(record.route_text_color),
-        });
-      });
-      continue;
-    }
-
-    if (fileName === "trips.txt") {
-      await consumeCsv(entry, (record) => {
-        const tripId = record.trip_id?.trim();
-        const routeId = record.route_id?.trim();
-        if (!tripId || !routeId) {
-          return;
-        }
-        trips.push({
-          tripId,
-          routeId,
-          serviceId: record.service_id?.trim() || null,
-          tripHeadsign: record.trip_headsign?.trim() || null,
-        });
-        const shapeId = record.shape_id?.trim();
-        if (shapeId) {
-          tripShapes.push({ routeId, shapeId });
-        }
-      });
-      continue;
-    }
-
-    if (fileName === "stop_times.txt") {
-      await consumeCsv(entry, (record) => {
-        const tripId = record.trip_id?.trim();
-        const stopId = record.stop_id?.trim();
-        const stopSequence = parseRequiredInt(record.stop_sequence);
-        if (!tripId || !stopId || stopSequence == null) {
-          return;
-        }
-        stopTimes.push({
-          tripId,
-          stopId,
-          arrivalTime: record.arrival_time?.trim() || null,
-          departureTime: record.departure_time?.trim() || null,
-          arrivalSeconds: parseGtfsTime(record.arrival_time),
-          departureSeconds: parseGtfsTime(record.departure_time),
-          stopSequence,
-        });
-      });
-      continue;
-    }
-
-    if (fileName === "shapes.txt") {
-      await consumeCsv(entry, (record) => {
-        const shapeId = record.shape_id?.trim();
-        const latitude = parseNumber(record.shape_pt_lat);
-        const longitude = parseNumber(record.shape_pt_lon);
-        const sequence = parseRequiredInt(record.shape_pt_sequence);
-        if (!shapeId || latitude == null || longitude == null || sequence == null) {
-          return;
-        }
-        shapes.push({
-          shapeId,
-          latitude,
-          longitude,
-          sequence,
-          distanceTraveled: parseNumber(record.shape_dist_traveled),
-        });
-      });
-    }
-  }
-
-  stopTimes.sort((a, b) => {
-    if (a.tripId === b.tripId) {
-      return a.stopSequence - b.stopSequence;
-    }
-    return a.tripId.localeCompare(b.tripId);
-  });
-
-  shapes.sort((a, b) => {
-    if (a.shapeId === b.shapeId) {
-      return a.sequence - b.sequence;
-    }
-    return a.shapeId.localeCompare(b.shapeId);
-  });
-
-  return { stops, routes, trips, stopTimes, shapes, routeMetaById, tripShapes };
-};
-
 const toTracksFeatureCollection = (
-  shapes: ShapePoint[],
+  shapePointsById: Map<string, ShapePoint[]>,
   routeMetaById: Map<string, RouteMeta>,
-  tripShapes: TripShape[]
+  routeCountsByShapeId: Map<string, Map<string, number>>
 ): TrainTracksResponse => {
-  const grouped = new Map<string, ShapePoint[]>();
-  for (const point of shapes) {
-    const current = grouped.get(point.shapeId);
-    if (current) {
-      current.push(point);
-    } else {
-      grouped.set(point.shapeId, [point]);
-    }
-  }
-
-  const routeCountsByShapeId = new Map<string, Map<string, number>>();
-  for (const tripShape of tripShapes) {
-    const current = routeCountsByShapeId.get(tripShape.shapeId);
-    if (current) {
-      current.set(tripShape.routeId, (current.get(tripShape.routeId) ?? 0) + 1);
-    } else {
-      routeCountsByShapeId.set(tripShape.shapeId, new Map([[tripShape.routeId, 1]]));
-    }
-  }
-
   let objectId = 1;
   const features: TrainTrackFeature[] = [];
-  for (const [shapeId, points] of grouped) {
+  for (const [shapeId, points] of shapePointsById) {
     points.sort((a, b) => a.sequence - b.sequence);
     const coordinates = points.map(
       (point) => [point.longitude, point.latitude] as [number, number]
@@ -464,29 +252,165 @@ const toTracksFeatureCollection = (
   };
 };
 
-const readJson = async <T>(filePath: string): Promise<T> => {
-  const content = await readFile(filePath, "utf8");
-  return JSON.parse(content) as T;
-};
+export const buildStaticSnapshot = async (
+  zipPath: string,
+  snapshotDate: string
+): Promise<StaticTimetableSnapshot> => {
+  const directory = await unzipper.Open.file(zipPath);
+  const readEntry = async (fileName: string, onRecord: (record: CsvRecord) => void) => {
+    const file = directory.files.find(
+      (candidate) => candidate.path.split("/").pop()?.toLowerCase() === fileName
+    );
+    if (!file) {
+      throw new Error(`GTFS zip has no ${fileName}`);
+    }
+    await consumeCsv(file.stream(), onRecord);
+  };
 
-const writeJson = async (filePath: string, data: unknown): Promise<void> => {
-  await writeFile(filePath, JSON.stringify(data), "utf8");
-};
+  const stopsById = new Map<string, StaticStop>();
+  await readEntry("stops.txt", (record) => {
+    const stopId = record.stop_id?.trim();
+    if (!stopId) {
+      return;
+    }
+    stopsById.set(stopId, {
+      stopId,
+      stopName: record.stop_name?.trim() || null,
+      latitude: parseNumber(record.stop_lat),
+      longitude: parseNumber(record.stop_lon),
+    });
+  });
 
-const ensureFilesExist = async (assetDir: string): Promise<void> => {
-  const results = await Promise.all(
-    REQUIRED_ASSET_FILES.map(async (fileName) => {
-      const exists = await fileExists(resolve(assetDir, fileName));
-      return { fileName, exists };
-    })
-  );
-  const missing = results.filter((entry) => !entry.exists).map((entry) => entry.fileName);
-  if (missing.length > 0) {
-    throw new Error(`Missing required static asset files in ${assetDir}: ${missing.join(", ")}`);
+  const routesById = new Map<string, StaticRoute>();
+  const routeMetaById = new Map<string, RouteMeta>();
+  await readEntry("routes.txt", (record) => {
+    const routeId = record.route_id?.trim();
+    if (!routeId) {
+      return;
+    }
+    routesById.set(routeId, {
+      routeId,
+      routeShortName: record.route_short_name?.trim() || null,
+      routeLongName: record.route_long_name?.trim() || null,
+    });
+    routeMetaById.set(routeId, {
+      routeId,
+      agencyId: record.agency_id?.trim() || "",
+      routeShortName: record.route_short_name?.trim() || "",
+      routeLongName: record.route_long_name?.trim() || "",
+      routeDesc: record.route_desc?.trim() || "",
+      routeType: record.route_type?.trim() || "",
+      routeColor: normalizeHexColor(record.route_color),
+      routeTextColor: normalizeHexColor(record.route_text_color),
+    });
+  });
+
+  const tripsById = new Map<string, StaticTrip>();
+  const routeCountsByShapeId = new Map<string, Map<string, number>>();
+  await readEntry("trips.txt", (record) => {
+    const tripId = record.trip_id?.trim();
+    const routeId = record.route_id?.trim();
+    if (!tripId || !routeId) {
+      return;
+    }
+    tripsById.set(tripId, {
+      tripId,
+      routeId,
+      serviceId: record.service_id?.trim() || null,
+      tripHeadsign: record.trip_headsign?.trim() || null,
+    });
+    const shapeId = record.shape_id?.trim();
+    if (shapeId) {
+      const routeCounts = routeCountsByShapeId.get(shapeId) ?? new Map<string, number>();
+      routeCounts.set(routeId, (routeCounts.get(routeId) ?? 0) + 1);
+      routeCountsByShapeId.set(shapeId, routeCounts);
+    }
+  });
+
+  const stopTimesByTripId = new Map<string, StaticStopTime[]>();
+  let stopTimeCount = 0;
+  await readEntry("stop_times.txt", (record) => {
+    const trip = tripsById.get(record.trip_id?.trim() ?? "");
+    const stopId = record.stop_id?.trim();
+    const stopSequence = parseRequiredInt(record.stop_sequence);
+    if (!trip || !stopId || stopSequence == null) {
+      return;
+    }
+    const stopTime: StaticStopTime = {
+      tripId: trip.tripId,
+      stopId,
+      arrivalTime: record.arrival_time?.trim() || null,
+      departureTime: record.departure_time?.trim() || null,
+      arrivalSeconds: parseGtfsTime(record.arrival_time),
+      departureSeconds: parseGtfsTime(record.departure_time),
+      stopSequence,
+    };
+    const tripStopTimes = stopTimesByTripId.get(trip.tripId);
+    if (tripStopTimes) {
+      tripStopTimes.push(stopTime);
+    } else {
+      stopTimesByTripId.set(trip.tripId, [stopTime]);
+    }
+    stopTimeCount += 1;
+  });
+  for (const tripStopTimes of stopTimesByTripId.values()) {
+    tripStopTimes.sort((a, b) => a.stopSequence - b.stopSequence);
   }
+
+  const shapePointsById = new Map<string, ShapePoint[]>();
+  await readEntry("shapes.txt", (record) => {
+    const shapeId = record.shape_id?.trim();
+    const latitude = parseNumber(record.shape_pt_lat);
+    const longitude = parseNumber(record.shape_pt_lon);
+    const sequence = parseRequiredInt(record.shape_pt_sequence);
+    if (!shapeId || latitude == null || longitude == null || sequence == null) {
+      return;
+    }
+    const point = {
+      latitude,
+      longitude,
+      sequence,
+      distanceTraveled: parseNumber(record.shape_dist_traveled),
+    };
+    const shapePoints = shapePointsById.get(shapeId);
+    if (shapePoints) {
+      shapePoints.push(point);
+    } else {
+      shapePointsById.set(shapeId, [point]);
+    }
+  });
+  const tracks = toTracksFeatureCollection(shapePointsById, routeMetaById, routeCountsByShapeId);
+
+  if (
+    stopsById.size === 0 ||
+    routesById.size === 0 ||
+    tripsById.size === 0 ||
+    stopTimeCount === 0 ||
+    tracks.features.length === 0
+  ) {
+    throw new Error(
+      `GTFS static data looks empty or truncated (stops=${stopsById.size} routes=${routesById.size} trips=${tripsById.size} stopTimes=${stopTimeCount} tracks=${tracks.features.length})`
+    );
+  }
+
+  debugLog(
+    "STATIC",
+    `built timetable for ${snapshotDate} stops=${stopsById.size} routes=${routesById.size} trips=${tripsById.size} stopTimes=${stopTimeCount} tracks=${tracks.features.length}`
+  );
+
+  return {
+    stopsById,
+    routesById,
+    tripsById,
+    stopTimesByTripId,
+    stops: [...stopsById.values()],
+    tracks,
+    snapshotDate,
+    fetchedAt: DateTime.now().toMillis(),
+  };
 };
 
-const downloadAndSaveAssets = async (assetDir: string): Promise<void> => {
+const downloadGtfsZip = async (targetPath: string): Promise<void> => {
   const apiKey = process.env.OPEN_DATA_KEY?.trim();
   if (!apiKey) {
     throw new Error("OPEN_DATA_KEY is required to download static assets");
@@ -502,146 +426,71 @@ const downloadAndSaveAssets = async (assetDir: string): Promise<void> => {
       Accept: "application/zip",
     },
   });
-
-  const parsed = await parseGtfsZip(response.data, signal);
-  const tracks = toTracksFeatureCollection(parsed.shapes, parsed.routeMetaById, parsed.tripShapes);
-
-  if (
-    parsed.stops.length === 0 ||
-    parsed.routes.length === 0 ||
-    parsed.trips.length === 0 ||
-    parsed.stopTimes.length === 0 ||
-    tracks.features.length === 0
-  ) {
-    throw new Error(
-      `Downloaded GTFS static data looks empty or truncated (stops=${parsed.stops.length} routes=${parsed.routes.length} trips=${parsed.trips.length} stopTimes=${parsed.stopTimes.length} tracks=${tracks.features.length}); keeping previous assets`
-    );
-  }
-
-  await mkdir(assetDir, { recursive: true });
-
-  await Promise.all([
-    writeJson(resolve(assetDir, "stops.json"), parsed.stops),
-    writeJson(resolve(assetDir, "routes.json"), parsed.routes),
-    writeJson(resolve(assetDir, "trips.json"), parsed.trips),
-    writeJson(resolve(assetDir, "stopTimes.json"), parsed.stopTimes),
-    writeJson(resolve(assetDir, "tracks.json"), tracks),
-  ]);
-
-  await writeStaticAssetsMeta(assetDir, sydneyTodayIsoDate());
-
-  debugLog(
-    "STATIC",
-    `saved static assets dir=${assetDir} stops=${parsed.stops.length} routes=${parsed.routes.length} trips=${parsed.trips.length} stopTimes=${parsed.stopTimes.length} tracks=${tracks.features.length}`
-  );
+  await pipelineAsync(response.data, createWriteStream(targetPath), { signal });
 };
 
-const clearRouteAssetsCache = (): void => {
-  routeAssetsCache = null;
-};
-
-export const getStaticAssetsDir = (): string => {
-  return ASSETS_DIR;
-};
-
-const readAssetDirEntries = async (assetDir: string): Promise<string[]> => {
+const installDownloadedZip = async (snapshotDate: string): Promise<void> => {
+  await mkdir(ASSETS_DIR, { recursive: true });
+  const zipPath = resolve(ASSETS_DIR, GTFS_ZIP_FILE);
+  const downloadPath = `${zipPath}.download`;
   try {
-    return await readdir(assetDir);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
-};
-
-export const checkStaticAssets = async (): Promise<void> => {
-  const assetDir = getStaticAssetsDir();
-  const currentEntries = await readAssetDirEntries(assetDir);
-  debugLog(
-    "STATIC",
-    `checking static assets dir=${assetDir} files=${currentEntries.length}${
-      currentEntries.length ? ` (${currentEntries.join(", ")})` : ""
-    }`
-  );
-
-  const results = await Promise.all(
-    REQUIRED_ASSET_FILES.map(async (fileName) => {
-      const exists = await fileExists(resolve(assetDir, fileName));
-      return { fileName, exists };
-    })
-  );
-  const missing = results.filter((entry) => !entry.exists).map((entry) => entry.fileName);
-  if (missing.length === 0) {
-    debugLog("STATIC", `all required static assets already present in ${assetDir}`);
-    await ensureStaticAssetsMetaForMigration(assetDir);
-    return;
-  }
-
-  debugLog("STATIC", `missing static assets (${missing.join(", ")}), downloading fresh files`);
-  clearRouteAssetsCache();
-  await downloadAndSaveAssets(assetDir);
-  await ensureFilesExist(assetDir);
-};
-
-export const getRouteStaticAssets = async (): Promise<{
-  stops: TrainStopsResponse;
-  tracks: TrainTracksResponse;
-}> => {
-  const assetsDir = getStaticAssetsDir();
-  const sourceKey = assetsDir;
-  if (routeAssetsCache && routeAssetsCache.sourceKey === sourceKey) {
-    return {
-      stops: routeAssetsCache.stops,
-      tracks: routeAssetsCache.tracks,
-    };
-  }
-
-  const [stops, tracks] = await Promise.all([
-    readJson<TrainStopsResponse>(resolve(assetsDir, "stops.json")),
-    readJson<TrainTracksResponse>(resolve(assetsDir, "tracks.json")),
-  ]);
-
-  routeAssetsCache = {
-    sourceKey,
-    stops,
-    tracks,
-  };
-
-  return { stops, tracks };
-};
-
-export const refreshStaticAssetsIfNewCalendarDay = async (): Promise<boolean> => {
-  if (refreshNewDayInFlight) {
-    return refreshNewDayInFlight;
-  }
-
-  refreshNewDayInFlight = (async (): Promise<boolean> => {
-    const assetDir = getStaticAssetsDir();
-    await ensureStaticAssetsMetaForMigration(assetDir);
-
-    const meta = await readStaticAssetsMeta(assetDir);
-    const today = sydneyTodayIsoDate();
-    if (!meta || !today) {
-      return false;
-    }
-    if (meta.fetchedDate === today) {
-      return false;
-    }
-
-    debugLog(
-      "STATIC",
-      `calendar day changed (${meta.fetchedDate} -> ${today}), re-downloading static assets`
+    await downloadGtfsZip(downloadPath);
+    const snapshot = await buildStaticSnapshot(downloadPath, snapshotDate);
+    await rename(downloadPath, zipPath);
+    await writeFileAtomic(
+      resolve(ASSETS_DIR, STATIC_ASSETS_META_FILE),
+      JSON.stringify({ fetchedDate: snapshotDate })
     );
-    clearRouteAssetsCache();
-    await downloadAndSaveAssets(assetDir);
-    await ensureFilesExist(assetDir);
-    return true;
+    setStaticTimetable(snapshot);
+    await Promise.all(
+      LEGACY_ASSET_FILES.map((fileName) => rm(resolve(ASSETS_DIR, fileName), { force: true }))
+    );
+  } finally {
+    await rm(downloadPath, { force: true });
+  }
+};
+
+export const updateStaticTimetable = async (): Promise<void> => {
+  if (updateInFlight) {
+    return updateInFlight;
+  }
+
+  updateInFlight = (async () => {
+    const snapshotDate = sydneyTodayIsoDate();
+    const zipPath = resolve(ASSETS_DIR, GTFS_ZIP_FILE);
+    const hasZip = await fileExists(zipPath);
+    const meta = await readStaticAssetsMeta(ASSETS_DIR);
+
+    if (!hasZip || meta?.fetchedDate !== snapshotDate) {
+      try {
+        await installDownloadedZip(snapshotDate);
+        return;
+      } catch (error) {
+        if (!hasZip) {
+          throw error;
+        }
+        console.error(
+          `Static GTFS download failed, keeping the existing timetable: ${describeError(error)}`
+        );
+      }
+    }
+
+    if (getStaticTimetable().snapshotDate !== snapshotDate) {
+      setStaticTimetable(await buildStaticSnapshot(zipPath, snapshotDate));
+    }
   })();
 
   try {
-    return await refreshNewDayInFlight;
+    await updateInFlight;
   } finally {
-    refreshNewDayInFlight = null;
+    updateInFlight = null;
   }
+};
+
+export const getRouteStaticAssets = async (): Promise<{
+  stops: StaticStop[];
+  tracks: TrainTracksResponse;
+}> => {
+  const { stops, tracks } = getStaticTimetable();
+  return { stops, tracks };
 };

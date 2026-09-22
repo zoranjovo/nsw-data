@@ -14,6 +14,9 @@ const defaultStaticTimetable: StaticTimetableSnapshot = {
   routesById: new Map<string, StaticRoute>(),
   tripsById: new Map<string, StaticTrip>(),
   stopTimesByTripId: new Map<string, StaticStopTime[]>(),
+  stops: [],
+  tracks: { type: "FeatureCollection", name: "SydneyTrains", features: [] },
+  snapshotDate: "",
   fetchedAt: 0,
 };
 
@@ -28,12 +31,4 @@ export const getStaticTimetable = (): StaticTimetableSnapshot => {
 
 export const setStaticTimetable = (snapshot: StaticTimetableSnapshot): void => {
   staticTimetableStore.set(snapshot);
-};
-
-export const getStaticTimetableFetchPromise = (): Promise<void> | null => {
-  return staticTimetableStore.getFetchPromise();
-};
-
-export const setStaticTimetableFetchPromise = (nextPromise: Promise<void> | null): void => {
-  staticTimetableStore.setFetchPromise(nextPromise);
 };

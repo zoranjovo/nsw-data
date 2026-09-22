@@ -1,3 +1,5 @@
+import type { TrainTracksResponse } from "./tracks";
+
 export type TimetableStop = {
   stopId: string;
   stopName: string | null;
@@ -76,5 +78,8 @@ export type StaticTimetableSnapshot = {
   routesById: Map<string, StaticRoute>;
   tripsById: Map<string, StaticTrip>;
   stopTimesByTripId: Map<string, StaticStopTime[]>;
+  stops: StaticStop[];
+  tracks: TrainTracksResponse;
+  snapshotDate: string;
   fetchedAt: number;
 };
