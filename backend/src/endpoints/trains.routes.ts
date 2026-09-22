@@ -10,6 +10,7 @@ import { describeError } from "../utils/errors";
 
 export const trainsRouter = Router();
 const THIRTY_SECOND_WINDOW_MS = 30_000;
+const MAX_BULK_TIMETABLE_TRIP_IDS = 1000;
 
 const createRateLimiter = (max: number) => {
   return rateLimit({
@@ -110,8 +111,17 @@ trainsRouter.get("/timetable/:tripId", timetableSingleRateLimiter, async (req, r
 });
 
 trainsRouter.post("/timetable/bulk", timetableBulkRateLimiter, async (req, res) => {
+  const tripIds: unknown = req.body?.tripIds;
+  if (!Array.isArray(tripIds) || !tripIds.every((tripId) => typeof tripId === "string")) {
+    return res.status(400).json({ error: "tripIds must be an array of strings" });
+  }
+  if (tripIds.length > MAX_BULK_TIMETABLE_TRIP_IDS) {
+    return res
+      .status(400)
+      .json({ error: `At most ${MAX_BULK_TIMETABLE_TRIP_IDS} tripIds per request` });
+  }
+
   try {
-    const { tripIds } = req.body as { tripIds: string[] };
     const timetables = tripIds.map(getTripTimetableByTripId);
     return res.json(timetables);
   } catch (error) {
