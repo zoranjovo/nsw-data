@@ -62,7 +62,7 @@ const formatScheduledTime = (value: string | null): string => {
 
 const formatTimestamp = (value: number | null): string | null => {
   if (!value) return null;
-  return DateTime.fromSeconds(value).toFormat("h:mm:ss a");
+  return DateTime.fromSeconds(value, { zone: "Australia/Sydney" }).toFormat("h:mm:ss a");
 };
 
 const formatRawScalar = (value: string | number | boolean | null | undefined): string => {

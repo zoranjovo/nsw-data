@@ -50,7 +50,7 @@ const RawDetails = ({
 }) => {
   const timestampStr =
     train.timestamp != null
-      ? DateTime.fromSeconds(train.timestamp).toLocaleString({
+      ? DateTime.fromSeconds(train.timestamp, { zone: "Australia/Sydney" }).toLocaleString({
           hour: "numeric",
           minute: "2-digit",
           second: "2-digit",
