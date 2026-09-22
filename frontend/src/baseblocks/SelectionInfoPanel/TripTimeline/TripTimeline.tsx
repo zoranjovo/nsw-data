@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { getTrainTimetable } from "@/client-api/train";
+import { isTimetableStale } from "@/lib/timetableRefresh";
 import {
   effectiveStopTimeEpoch,
   getStopOrderingMoment,
@@ -10,7 +11,7 @@ import {
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
 import { createRouteShortNameLookup } from "@/lib/trainRouteId";
 import { useAppContext } from "@/providers/AppProvider";
-import type { TimetableData, TimetableStop } from "@/types/train/timetable";
+import type { TimetableStop } from "@/types/train/timetable";
 import { isTimetableData } from "@/types/train/timetable";
 import styles from "./TripTimeline.module.css";
 
@@ -232,24 +233,19 @@ export const TripTimeline = ({
     return map;
   }, [trainStatic.stops]);
 
-  const contextTimetable = useMemo(
-    () =>
-      trainStatic.timetables.find((item) => isTimetableData(item) && item.tripId === tripId) ??
-      null,
-    [trainStatic.timetables, tripId]
-  );
+  const timetable = trainStatic.timetables.get(tripId) ?? null;
+  const tripUpdatesFetchedAt = trainRealtime.tripUpdates.fetchedAt;
+  const refreshKey =
+    timetable == null || isTimetableStale(timetable, tripUpdatesFetchedAt)
+      ? tripUpdatesFetchedAt
+      : null;
 
-  const [fetchedTimetable, setFetchedTimetable] = useState<TimetableData | null>(null);
   const [timetableFetchStatus, setTimetableFetchStatus] = useState<"idle" | "loading" | "error">(
     "idle"
   );
 
   useEffect(() => {
-    setFetchedTimetable(null);
-    setTimetableFetchStatus("idle");
-
-    if (!tripId) return;
-    if (contextTimetable != null) return;
+    if (!tripId || refreshKey == null) return;
 
     let cancelled = false;
 
@@ -259,16 +255,13 @@ export const TripTimeline = ({
         const data = await getTrainTimetable(tripId);
         if (cancelled) return;
         if (!isTimetableData(data)) {
-          setFetchedTimetable(null);
           setTimetableFetchStatus("error");
           return;
         }
         cacheTimetable(data);
-        setFetchedTimetable(data);
         setTimetableFetchStatus("idle");
       } catch {
         if (cancelled) return;
-        setFetchedTimetable(null);
         setTimetableFetchStatus("error");
       }
     };
@@ -278,9 +271,7 @@ export const TripTimeline = ({
     return () => {
       cancelled = true;
     };
-  }, [tripId, contextTimetable, cacheTimetable]);
-
-  const timetable = contextTimetable ?? fetchedTimetable;
+  }, [tripId, refreshKey, cacheTimetable]);
   const getRouteShortName = useMemo(
     () => createRouteShortNameLookup(trainStatic.tracks.features),
     [trainStatic.tracks.features]

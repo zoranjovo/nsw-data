@@ -34,7 +34,7 @@ export type TrainRealtimeState = {
 
 export type TrainStaticState = {
   status: "idle" | "loading" | "ready" | "error";
-  timetables: TimetableData[];
+  timetables: Map<string, TimetableData>;
   tracks: TrainTracksResponse;
   stops: TrainStopsResponse;
   error: string | null;
@@ -78,7 +78,7 @@ const initialTrainRealtime: TrainRealtimeState = {
 
 const initialTrainStatic: TrainStaticState = {
   status: "idle",
-  timetables: [],
+  timetables: new Map(),
   tracks: {
     type: "FeatureCollection",
     name: "train-tracks",
@@ -174,23 +174,45 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [currentPage]);
 
-  const cacheTimetable = useCallback((timetable: TimetableData) => {
+  const cacheTimetables = useCallback((timetables: TimetableData[]) => {
     setTrainStatic((prev) => {
-      if (prev.timetables.some((t) => t.tripId === timetable.tripId)) return prev;
-      return { ...prev, timetables: [...prev.timetables, timetable] };
+      const newer = timetables.filter((timetable) => {
+        const cached = prev.timetables.get(timetable.tripId);
+        return (
+          cached == null ||
+          (timetable.tripUpdatesFetchedAt ?? 0) > (cached.tripUpdatesFetchedAt ?? 0)
+        );
+      });
+      if (newer.length === 0) return prev;
+      const next = new Map(prev.timetables);
+      for (const timetable of newer) {
+        next.set(timetable.tripId, timetable);
+      }
+      return { ...prev, timetables: next };
     });
   }, []);
 
-  const cacheTimetables = useCallback((timetables: TimetableData[]) => {
+  const cacheTimetable = useCallback(
+    (timetable: TimetableData) => cacheTimetables([timetable]),
+    [cacheTimetables]
+  );
+
+  useEffect(() => {
+    const liveTripIds = new Set(trainRealtime.positions.items.map((position) => position.tripId));
+    const selectedTripId =
+      selectedItem?.type === "train" ? (selectedItem.data as TrainPosition).tripId : null;
     setTrainStatic((prev) => {
-      const existingTripIds = new Set(prev.timetables.map((timetable) => timetable.tripId));
-      const newTimetables = timetables.filter(
-        (timetable) => !existingTripIds.has(timetable.tripId)
+      const goneTripIds = [...prev.timetables.keys()].filter(
+        (tripId) => !liveTripIds.has(tripId) && tripId !== selectedTripId
       );
-      if (newTimetables.length === 0) return prev;
-      return { ...prev, timetables: [...prev.timetables, ...newTimetables] };
+      if (goneTripIds.length === 0) return prev;
+      const next = new Map(prev.timetables);
+      for (const tripId of goneTripIds) {
+        next.delete(tripId);
+      }
+      return { ...prev, timetables: next };
     });
-  }, []);
+  }, [trainRealtime.positions, selectedItem]);
 
   const value = useMemo<AppState>(
     () => ({
