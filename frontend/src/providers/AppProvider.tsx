@@ -97,7 +97,7 @@ const AppContext = createContext<AppState | null>(null);
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
-  const currentPage = location.pathname.replace(/^\//, "") || "trains";
+  const currentPage = location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase() || "trains";
   const [mapReady, setMapReady] = useState(false);
   const [storedTrainMovementSettings] = useState(loadTrainMovementSettings);
   const [interpolatedTrainMovement, setInterpolatedTrainMovement] = useState(
