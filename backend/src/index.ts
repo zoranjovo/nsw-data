@@ -4,6 +4,11 @@ import cors from "cors";
 import express from "express";
 import { registerRoutes } from "./router";
 import { appState, initialiseApp, wakeUpApp } from "./state/appState";
+import { describeError } from "./utils/errors";
+
+process.on("unhandledRejection", (reason) => {
+  console.error(`Unhandled promise rejection: ${describeError(reason)}`);
+});
 
 const app = express();
 
