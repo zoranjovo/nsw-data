@@ -133,7 +133,11 @@ export const mergeStopTimeUpdates = (
     let matchedIndex = updateIndexBySequence.get(stopTime.stopSequence) ?? -1;
 
     for (let index = updateIndex; matchedIndex === -1 && index < stopUpdates.length; index += 1) {
-      if (stopUpdates[index].stopId === stopTime.stopId) {
+      const candidate = stopUpdates[index];
+      if (
+        candidate.stopId === stopTime.stopId &&
+        (candidate.stopSequence == null || candidate.stopSequence === stopTime.stopSequence)
+      ) {
         matchedIndex = index;
       }
     }
