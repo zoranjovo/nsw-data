@@ -528,6 +528,7 @@ const applyGpsFix = (
 const buildTrackMotion = (
   waypoints: TrainAnimationWaypoint[],
   gpsPosition: TrainPosition | null,
+  gpsFixRequired: boolean,
   tracks: TrainTracksResponse,
   routeId: string
 ): TrainMotion | null => {
@@ -559,17 +560,21 @@ const buildTrackMotion = (
     gpsPosition == null
       ? null
       : applyGpsFix(bestPath, times, bestFit.distances, bestFit.direction, gpsPosition);
+  if (fixedMotion != null) {
+    return fixedMotion;
+  }
+  if (gpsFixRequired) {
+    return null;
+  }
 
-  return (
-    fixedMotion ?? {
-      times,
-      path: bestPath,
-      distances: bestFit.distances,
-      direction: bestFit.direction,
-      latitudes: null,
-      longitudes: null,
-    }
-  );
+  return {
+    times,
+    path: bestPath,
+    distances: bestFit.distances,
+    direction: bestFit.direction,
+    latitudes: null,
+    longitudes: null,
+  };
 };
 
 export const buildTrainMotion = (
@@ -583,14 +588,29 @@ export const buildTrainMotion = (
     return null;
   }
 
+  const waypoints = buildAnimationWaypoints(timetable, gpsPosition);
+  const hasGpsWaypoint =
+    gpsPosition != null &&
+    waypoints.some(
+      (waypoint) =>
+        waypoint.epochSeconds === gpsPosition.timestamp &&
+        waypoint.latitude === gpsPosition.latitude &&
+        waypoint.longitude === gpsPosition.longitude
+    );
+
   if (tracks != null && routeId != null && routeId.length > 0) {
-    const trackMotion = buildTrackMotion(stopWaypoints, gpsPosition, tracks, routeId);
+    const trackMotion = buildTrackMotion(
+      stopWaypoints,
+      gpsPosition,
+      hasGpsWaypoint,
+      tracks,
+      routeId
+    );
     if (trackMotion != null) {
       return trackMotion;
     }
   }
 
-  const waypoints = buildAnimationWaypoints(timetable, gpsPosition);
   const waypointCount = waypoints.length;
   const times = new Float64Array(waypointCount);
   const latitudes = new Float64Array(waypointCount);
