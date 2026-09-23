@@ -10,6 +10,7 @@ import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
 
 const EASE_DURATION_SECONDS = 1;
+const MAX_EASE_SOURCE_AGE_SECONDS = 2;
 
 type CacheEntry = {
   timetable: TimetableData;
@@ -17,6 +18,7 @@ type CacheEntry = {
   gpsStamp: string;
   motion: TrainMotion | null;
   lastSample: InterpolatedTrainPosition | null;
+  lastSampleEpochSeconds: number;
   easeFrom: InterpolatedTrainPosition | null;
   easeStartEpochSeconds: number;
 };
@@ -66,13 +68,19 @@ export const createTrainMotionCache = (): TrainMotionCache => {
           tracks,
           position.routeId || timetable.routeId
         );
+        const recentSample =
+          entry != null &&
+          nowEpochSeconds - entry.lastSampleEpochSeconds <= MAX_EASE_SOURCE_AGE_SECONDS
+            ? entry.lastSample
+            : null;
         entry = {
           timetable,
           tracks,
           gpsStamp: stamp,
           motion,
-          lastSample: entry?.lastSample ?? null,
-          easeFrom: entry?.lastSample ?? null,
+          lastSample: recentSample,
+          lastSampleEpochSeconds: entry?.lastSampleEpochSeconds ?? nowEpochSeconds,
+          easeFrom: recentSample,
           easeStartEpochSeconds: nowEpochSeconds,
         };
         entries.set(key, entry);
@@ -83,11 +91,13 @@ export const createTrainMotionCache = (): TrainMotionCache => {
       if (target == null || entry.easeFrom == null || progress >= 1) {
         entry.easeFrom = null;
         entry.lastSample = target;
+        entry.lastSampleEpochSeconds = nowEpochSeconds;
         return target;
       }
 
       const eased = easeTowards(entry.easeFrom, target, Math.max(0, progress));
       entry.lastSample = eased;
+      entry.lastSampleEpochSeconds = nowEpochSeconds;
       return eased;
     },
 
