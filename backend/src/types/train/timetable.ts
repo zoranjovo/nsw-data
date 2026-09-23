@@ -3,6 +3,7 @@ export type TimetableStop = {
   stopName: string | null;
   stopSequence: number;
   hasRealtimeStopUpdate: boolean;
+  skipped: boolean;
   latitude: number | null;
   longitude: number | null;
   scheduledArrival: string | null;
@@ -33,6 +34,7 @@ export type TimetableData = {
   routeLongName: string | null;
   tripHeadsign: string | null;
   vehicleId: string | null;
+  cancelled: boolean;
   tripUpdatesFetchedAt: number | null;
   staticTimetableFetchedAt: number | null;
   progress: TimetableProgress | null;

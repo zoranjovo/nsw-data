@@ -21,6 +21,20 @@ const getStopMomentSeconds = (stopTime: StaticStopTime): number | null => {
   return stopTime.departureSeconds ?? stopTime.arrivalSeconds ?? null;
 };
 
+const serviceDayStartByDate = new Map<string, number | null>();
+
+const getServiceDayStart = (serviceDate: string): number | null => {
+  let dayStart = serviceDayStartByDate.get(serviceDate);
+  if (dayStart === undefined) {
+    const noon = DateTime.fromFormat(serviceDate, "yyyy-MM-dd", { zone: SYDNEY_ZONE }).set({
+      hour: 12,
+    });
+    dayStart = noon.isValid ? Math.floor(noon.toSeconds()) - 12 * 3600 : null;
+    serviceDayStartByDate.set(serviceDate, dayStart);
+  }
+  return dayStart;
+};
+
 export const toUnixTimestampForSydneyServiceDate = (
   serviceDate: string,
   secondsAfterMidnight: number | null
@@ -28,19 +42,8 @@ export const toUnixTimestampForSydneyServiceDate = (
   if (secondsAfterMidnight == null) {
     return null;
   }
-
-  const dayOffset = Math.floor(secondsAfterMidnight / 86_400);
-  const secondsWithinDay = secondsAfterMidnight - dayOffset * 86_400;
-  const hours = Math.floor(secondsWithinDay / 3600);
-  const minutes = Math.floor((secondsWithinDay % 3600) / 60);
-  const seconds = secondsWithinDay % 60;
-
-  const base = DateTime.fromFormat(serviceDate, "yyyy-MM-dd", { zone: SYDNEY_ZONE });
-  if (!base.isValid) {
-    return null;
-  }
-  const dt = base.plus({ days: dayOffset }).set({ hour: hours, minute: minutes, second: seconds });
-  return Math.floor(dt.toSeconds());
+  const dayStart = getServiceDayStart(serviceDate);
+  return dayStart == null ? null : dayStart + secondsAfterMidnight;
 };
 
 const resolveServiceDateForTrip = (args: {
@@ -95,25 +98,45 @@ const resolveServiceDateForTrip = (args: {
   return bestDate;
 };
 
+const delayBetween = (realtime: number | null, scheduled: number | null): number | null => {
+  return realtime == null || scheduled == null ? null : realtime - scheduled;
+};
+
+const addDelay = (scheduled: number | null, delaySeconds: number | null): number | null => {
+  return scheduled == null || delaySeconds == null ? null : scheduled + delaySeconds;
+};
+
 export const mergeStopTimeUpdates = (
   stopTimes: StaticStopTime[],
   stopUpdates: TripUpdateStopTime[],
   serviceDate: string,
   stopsById: Map<string, StaticStop>
 ): TimetableStop[] => {
+  const updateIndexBySequence = new Map<number, number>();
+  for (const [index, update] of stopUpdates.entries()) {
+    if (update.stopSequence != null) {
+      updateIndexBySequence.set(update.stopSequence, index);
+    }
+  }
   let updateIndex = 0;
+  let propagatedDelaySeconds: number | null = null;
 
   return stopTimes.map((stopTime) => {
-    let matchedUpdate: TripUpdateStopTime | null = null;
+    let matchedIndex = updateIndexBySequence.get(stopTime.stopSequence) ?? -1;
 
-    for (let index = updateIndex; index < stopUpdates.length; index += 1) {
-      const candidate = stopUpdates[index];
-      if (candidate.stopId !== stopTime.stopId) {
-        continue;
+    for (let index = updateIndex; matchedIndex === -1 && index < stopUpdates.length; index += 1) {
+      if (stopUpdates[index].stopId === stopTime.stopId) {
+        matchedIndex = index;
       }
-      matchedUpdate = candidate;
-      updateIndex = index + 1;
-      break;
+    }
+    if (matchedIndex !== -1) {
+      updateIndex = matchedIndex + 1;
+    }
+    const matchedUpdate: TripUpdateStopTime | null =
+      matchedIndex === -1 ? null : stopUpdates[matchedIndex];
+    const timingUpdate = matchedUpdate?.skipped || matchedUpdate?.noData ? null : matchedUpdate;
+    if (matchedUpdate?.noData) {
+      propagatedDelaySeconds = null;
     }
 
     const stop = stopsById.get(stopTime.stopId);
@@ -125,26 +148,30 @@ export const mergeStopTimeUpdates = (
       serviceDate,
       stopTime.departureSeconds
     );
-    const rawRealtimeArrival = normalizeGtfsRealtimeEpoch(matchedUpdate?.realtimeArrivalTimestamp);
+    const rawRealtimeArrival = normalizeGtfsRealtimeEpoch(timingUpdate?.realtimeArrivalTimestamp);
     const rawRealtimeDeparture = normalizeGtfsRealtimeEpoch(
-      matchedUpdate?.realtimeDepartureTimestamp
+      timingUpdate?.realtimeDepartureTimestamp
     );
+    const arrivalDelaySeconds =
+      timingUpdate?.arrivalDelaySeconds ??
+      delayBetween(rawRealtimeArrival, scheduledArrivalTimestamp) ??
+      propagatedDelaySeconds;
+    const departureDelaySeconds =
+      timingUpdate?.departureDelaySeconds ??
+      delayBetween(rawRealtimeDeparture, scheduledDepartureTimestamp) ??
+      arrivalDelaySeconds;
+    propagatedDelaySeconds = departureDelaySeconds;
     const realtimeArrivalTimestamp =
-      rawRealtimeArrival ??
-      (scheduledArrivalTimestamp == null || matchedUpdate?.arrivalDelaySeconds == null
-        ? null
-        : scheduledArrivalTimestamp + matchedUpdate.arrivalDelaySeconds);
+      rawRealtimeArrival ?? addDelay(scheduledArrivalTimestamp, arrivalDelaySeconds);
     const realtimeDepartureTimestamp =
-      rawRealtimeDeparture ??
-      (scheduledDepartureTimestamp == null || matchedUpdate?.departureDelaySeconds == null
-        ? null
-        : scheduledDepartureTimestamp + matchedUpdate.departureDelaySeconds);
+      rawRealtimeDeparture ?? addDelay(scheduledDepartureTimestamp, departureDelaySeconds);
 
     return {
       stopId: stopTime.stopId,
       stopName: stop?.stopName ?? null,
       stopSequence: stopTime.stopSequence,
       hasRealtimeStopUpdate: matchedUpdate != null,
+      skipped: matchedUpdate?.skipped ?? false,
       latitude: stop?.latitude ?? null,
       longitude: stop?.longitude ?? null,
       scheduledArrival: stopTime.arrivalTime,
@@ -155,8 +182,8 @@ export const mergeStopTimeUpdates = (
       scheduledDepartureTimestamp,
       realtimeArrivalTimestamp,
       realtimeDepartureTimestamp,
-      arrivalDelaySeconds: matchedUpdate?.arrivalDelaySeconds ?? null,
-      departureDelaySeconds: matchedUpdate?.departureDelaySeconds ?? null,
+      arrivalDelaySeconds,
+      departureDelaySeconds,
     };
   });
 };
@@ -191,7 +218,8 @@ const getStopOrderingMoment = (stop: TimetableStop): number | null => {
   );
 };
 
-export const buildProgress = (stops: TimetableStop[]): TimetableProgress | null => {
+export const buildProgress = (timetableStops: TimetableStop[]): TimetableProgress | null => {
+  const stops = timetableStops.filter((stop) => !stop.skipped);
   if (stops.length === 0) {
     return null;
   }
@@ -267,6 +295,7 @@ export const buildTrainTimetable = (args: {
     routeLongName: route?.routeLongName ?? null,
     tripHeadsign: trip.tripHeadsign,
     vehicleId: args.tripUpdate?.vehicleId ?? null,
+    cancelled: args.tripUpdate?.cancelled ?? false,
     tripUpdatesFetchedAt: args.tripUpdatesFetchedAt || null,
     staticTimetableFetchedAt: args.staticTimetableFetchedAt || null,
     progress: buildProgress(stops),
