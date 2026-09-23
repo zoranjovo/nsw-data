@@ -1,10 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { DateTime } from "luxon";
-import {
-  checkStaticAssets,
-  refreshStaticAssetsIfNewCalendarDay,
-} from "../services/staticData/staticData";
-import { loadStaticTimetableFromAssets } from "../services/timetable/timetable";
+import { updateStaticTimetable } from "../services/staticData/staticData";
 import { fetchTrainPositions } from "../services/trainPositions/trainPositions";
 import { fetchTripUpdates } from "../services/tripUpdates/tripUpdates";
 import { debugLog } from "../utils/debug";
@@ -49,10 +45,7 @@ const fastTick = () => {
 const slowTick = () => {
   void (async () => {
     try {
-      const didRefresh = await refreshStaticAssetsIfNewCalendarDay();
-      if (didRefresh) {
-        await loadStaticTimetableFromAssets(true);
-      }
+      await updateStaticTimetable();
     } catch (error) {
       console.error(
         `Daily static refresh failed, keeping previous timetable assets: ${describeError(error)}`
@@ -75,15 +68,7 @@ export const recordApiRequest = () => {
 };
 
 const loadInitialData = async () => {
-  await checkStaticAssets();
-  try {
-    await refreshStaticAssetsIfNewCalendarDay();
-  } catch (error) {
-    console.error(
-      `Static refresh failed on startup, using existing assets: ${describeError(error)}`
-    );
-  }
-  await loadStaticTimetableFromAssets();
+  await updateStaticTimetable();
   await refreshRealtime();
 };
 

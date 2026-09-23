@@ -38,9 +38,6 @@ importers:
       luxon:
         specifier: ^3.5.0
         version: 3.7.2
-      stream-json:
-        specifier: ^1.9.1
-        version: 1.9.1
       unzipper:
         specifier: ^0.12.3
         version: 0.12.3
@@ -63,9 +60,6 @@ importers:
       '@types/node':
         specifier: ^22.9.0
         version: 22.19.15
-      '@types/stream-json':
-        specifier: ^1.7.8
-        version: 1.7.8
       '@types/unzipper':
         specifier: ^0.10.11
         version: 0.10.11
@@ -395,12 +389,6 @@ packages:
 
   '@types/serve-static@1.15.10':
     resolution: {integrity: sha512-tRs1dB+g8Itk72rlSI2ZrW6vZg0YrLI81iQSTkMmOqnqCaNr/8Ek4VwWcN5vZgCYWbg/JJSGBlUaYGAOP73qBw==}
-
-  '@types/stream-chain@2.1.0':
-    resolution: {integrity: sha512-guDyAl6s/CAzXUOWpGK2bHvdiopLIwpGu8v10+lb9hnQOyo4oj/ZUQFOvqFjKGsE3wJP1fpIesCcMvbXuWsqOg==}
-
-  '@types/stream-json@1.7.8':
-    resolution: {integrity: sha512-MU1OB1eFLcYWd1LjwKXrxdoPtXSRzRmAnnxs4Js/ayB5O/NvHraWwuOaqMWIebpYwM6khFlsJOHEhI9xK/ab4Q==}
 
   '@types/unzipper@0.10.11':
     resolution: {integrity: sha512-D25im2zjyMCcgL9ag6N46+wbtJBnXIr7SI4zHf9eJD2Dw2tEB5e+p5MYkrxKIVRscs5QV0EhtU9rgXSPx90oJg==}
@@ -983,12 +971,6 @@ packages:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
 
-  stream-chain@2.2.5:
-    resolution: {integrity: sha512-1TJmBx6aSWqZ4tx7aTpBDXK0/e2hhcNSTV8+CbFJtDjbb+I1mZ8lHit0Grw9GRT+6JbIrrDd8esncgBi8aBXGA==}
-
-  stream-json@1.9.1:
-    resolution: {integrity: sha512-uWkjJ+2Nt/LO9Z/JyKZbMusL8Dkh97uUBTv3AJQ74y07lVahLY4eEFsPsE97pxYBwr8nnjMAIch5eqI0gPShyw==}
-
   string_decoder@1.1.1:
     resolution: {integrity: sha512-n/ShnvDi6FHbbVfviro+WojiFzv+s8MPMHBczVePfUpDJLwoLT0ht1l4YwBCbi8pJAveEEdnkHyPyTP/mzRfwg==}
 
@@ -1296,15 +1278,6 @@ snapshots:
       '@types/http-errors': 2.0.5
       '@types/node': 22.19.15
       '@types/send': 0.17.6
-
-  '@types/stream-chain@2.1.0':
-    dependencies:
-      '@types/node': 22.19.15
-
-  '@types/stream-json@1.7.8':
-    dependencies:
-      '@types/node': 22.19.15
-      '@types/stream-chain': 2.1.0
 
   '@types/unzipper@0.10.11':
     dependencies:
@@ -1963,12 +1936,6 @@ snapshots:
     optional: true
 
   statuses@2.0.2: {}
-
-  stream-chain@2.2.5: {}
-
-  stream-json@1.9.1:
-    dependencies:
-      stream-chain: 2.2.5
 
   string_decoder@1.1.1:
     dependencies:
