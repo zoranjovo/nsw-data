@@ -33,7 +33,6 @@ type TrackPath = {
   chunkMinY: Float64Array;
   chunkMaxX: Float64Array;
   chunkMaxY: Float64Array;
-  chunkDistSq: Float64Array;
 };
 
 /** Precomputed geometry for one trip, sampled cheaply on every animation frame. */
@@ -41,6 +40,7 @@ export type TrainMotion = {
   times: Float64Array;
   path: TrackPath | null;
   distances: Float64Array | null;
+  direction: number;
   latitudes: Float64Array | null;
   longitudes: Float64Array | null;
 };
@@ -132,7 +132,6 @@ const buildTrackPath = (coordinates: TrainTrackCoordinate[]): TrackPath | null =
     chunkMinY,
     chunkMaxX,
     chunkMaxY,
-    chunkDistSq: new Float64Array(chunkCount),
   };
 };
 
@@ -162,69 +161,150 @@ const routeTrackPaths = (tracks: TrainTracksResponse, routeId: string): TrackPat
   return paths;
 };
 
-let projectedDistanceMeters = 0;
-let projectedDistanceSq = 0;
+const CANDIDATE_RADIUS_METERS = 300;
+const PASS_GAP_METERS = 2 * CANDIDATE_RADIUS_METERS;
+const BACKTRACK_TOLERANCE_METERS = 50;
+const STATION_RADIUS_METERS = 150;
+const MAX_FIX_DELAY_SECONDS = 30 * 60;
 
-const scanChunkForProjection = (
-  path: TrackPath,
-  chunkIndex: number,
-  px: number,
-  py: number
-): void => {
-  const startIndex = chunkIndex * SEGMENTS_PER_CHUNK;
-  const endIndex = Math.min(path.lons.length - 1, startIndex + SEGMENTS_PER_CHUNK);
-
-  for (let index = startIndex; index < endIndex; index++) {
-    const ax = path.xs[index];
-    const ay = path.ys[index];
-    const dx = path.xs[index + 1] - ax;
-    const dy = path.ys[index + 1] - ay;
-    const lengthSq = dx * dx + dy * dy;
-    let t = lengthSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lengthSq;
-    t = t < 0 ? 0 : t > 1 ? 1 : t;
-    const offsetX = px - (ax + t * dx);
-    const offsetY = py - (ay + t * dy);
-    const distanceSq = offsetX * offsetX + offsetY * offsetY;
-    if (distanceSq < projectedDistanceSq) {
-      projectedDistanceSq = distanceSq;
-      projectedDistanceMeters = path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t;
-    }
-  }
+type TrackProjection = {
+  distanceMeters: number;
+  offsetSq: number;
 };
 
-/** Writes the nearest-point result into projectedDistanceMeters / projectedDistanceSq. */
-const projectOntoPath = (path: TrackPath, latitude: number, longitude: number): void => {
+type TrackFit = {
+  distances: Float64Array;
+  direction: number;
+  cost: number;
+};
+
+const projectionCandidates = (
+  path: TrackPath,
+  latitude: number,
+  longitude: number
+): TrackProjection[] => {
   const px = longitude * METERS_PER_DEGREE * path.cosLat;
   const py = latitude * METERS_PER_DEGREE;
-  const chunkCount = path.chunkDistSq.length;
+  const radiusSq = CANDIDATE_RADIUS_METERS * CANDIDATE_RADIUS_METERS;
+  const hits: TrackProjection[] = [];
 
-  let nearestChunk = 0;
-  let nearestChunkDistSq = Infinity;
-  for (let chunk = 0; chunk < chunkCount; chunk++) {
+  for (let chunk = 0; chunk < path.chunkMinX.length; chunk++) {
     const minX = path.chunkMinX[chunk];
     const maxX = path.chunkMaxX[chunk];
     const minY = path.chunkMinY[chunk];
     const maxY = path.chunkMaxY[chunk];
     const gapX = px < minX ? minX - px : px > maxX ? px - maxX : 0;
     const gapY = py < minY ? minY - py : py > maxY ? py - maxY : 0;
-    const distanceSq = gapX * gapX + gapY * gapY;
-    path.chunkDistSq[chunk] = distanceSq;
-    if (distanceSq < nearestChunkDistSq) {
-      nearestChunkDistSq = distanceSq;
-      nearestChunk = chunk;
+    if (gapX * gapX + gapY * gapY > radiusSq) continue;
+
+    const startIndex = chunk * SEGMENTS_PER_CHUNK;
+    const endIndex = Math.min(path.lons.length - 1, startIndex + SEGMENTS_PER_CHUNK);
+    for (let index = startIndex; index < endIndex; index++) {
+      const ax = path.xs[index];
+      const ay = path.ys[index];
+      const dx = path.xs[index + 1] - ax;
+      const dy = path.ys[index + 1] - ay;
+      const lengthSq = dx * dx + dy * dy;
+      let t = lengthSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lengthSq;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const offsetX = px - (ax + t * dx);
+      const offsetY = py - (ay + t * dy);
+      const offsetSq = offsetX * offsetX + offsetY * offsetY;
+      if (offsetSq <= radiusSq) {
+        hits.push({
+          distanceMeters: path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t,
+          offsetSq,
+        });
+      }
     }
   }
 
-  projectedDistanceMeters = 0;
-  projectedDistanceSq = Infinity;
-  scanChunkForProjection(path, nearestChunk, px, py);
-
-  // Bounding boxes only prune, so any chunk that could still win is scanned exactly
-  for (let chunk = 0; chunk < chunkCount; chunk++) {
-    if (chunk === nearestChunk) continue;
-    if (path.chunkDistSq[chunk] >= projectedDistanceSq) continue;
-    scanChunkForProjection(path, chunk, px, py);
+  hits.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  const passes: TrackProjection[] = [];
+  let passEnd = -Infinity;
+  for (const hit of hits) {
+    const lastIndex = passes.length - 1;
+    if (lastIndex >= 0 && hit.distanceMeters - passEnd <= PASS_GAP_METERS) {
+      if (hit.offsetSq < passes[lastIndex].offsetSq) passes[lastIndex] = hit;
+    } else {
+      passes.push(hit);
+    }
+    passEnd = hit.distanceMeters;
   }
+  return passes;
+};
+
+const fitAlongTrack = (candidates: TrackProjection[][], direction: number): TrackFit | null => {
+  const costs = candidates.map((options) => options.map(() => Infinity));
+  const previous = candidates.map((options) => options.map(() => -1));
+  for (const [option, candidate] of candidates[0].entries()) {
+    costs[0][option] = candidate.offsetSq;
+  }
+  for (let index = 1; index < candidates.length; index++) {
+    for (const [option, candidate] of candidates[index].entries()) {
+      for (const [priorOption, prior] of candidates[index - 1].entries()) {
+        const progress = direction * (candidate.distanceMeters - prior.distanceMeters);
+        const cost = costs[index - 1][priorOption] + candidate.offsetSq;
+        if (progress >= -BACKTRACK_TOLERANCE_METERS && cost < costs[index][option]) {
+          costs[index][option] = cost;
+          previous[index][option] = priorOption;
+        }
+      }
+    }
+  }
+
+  const lastCosts = costs[costs.length - 1];
+  const bestCost = Math.min(...lastCosts);
+  if (!Number.isFinite(bestCost)) {
+    return null;
+  }
+
+  const distances = new Float64Array(candidates.length);
+  let option = lastCosts.indexOf(bestCost);
+  for (let index = candidates.length - 1; index >= 0; index--) {
+    distances[index] = candidates[index][option].distanceMeters;
+    option = previous[index][option];
+  }
+  for (let index = 1; index < distances.length; index++) {
+    if (direction * (distances[index] - distances[index - 1]) < 0) {
+      distances[index] = distances[index - 1];
+    }
+  }
+  return { distances, direction, cost: bestCost };
+};
+
+const scheduledEpochAtDistance = (
+  times: Float64Array,
+  distances: Float64Array,
+  direction: number,
+  distanceMeters: number,
+  fixEpochSeconds: number
+): number => {
+  const lastIndex = distances.length - 1;
+  let stationStart = -1;
+  let stationEnd = -1;
+  for (let index = 0; index <= lastIndex; index++) {
+    if (Math.abs(distances[index] - distanceMeters) <= STATION_RADIUS_METERS) {
+      if (stationStart === -1) stationStart = index;
+      stationEnd = index;
+    }
+  }
+  if (stationStart !== -1) {
+    return Math.min(Math.max(fixEpochSeconds, times[stationStart]), times[stationEnd]);
+  }
+
+  const target = direction * distanceMeters;
+  if (target <= direction * distances[0]) {
+    return Math.min(fixEpochSeconds, times[0]);
+  }
+  if (target >= direction * distances[lastIndex]) {
+    return Math.max(fixEpochSeconds, times[lastIndex]);
+  }
+  let next = 1;
+  while (direction * distances[next] < target) next++;
+  const legStart = direction * distances[next - 1];
+  const legMeters = direction * distances[next] - legStart;
+  return times[next - 1] + ((times[next] - times[next - 1]) * (target - legStart)) / legMeters;
 };
 
 const firstIndexAtOrAfter = (values: Float64Array, target: number): number => {
@@ -361,46 +441,109 @@ export const buildAnimationWaypoints = (
   );
 };
 
+const applyGpsFix = (
+  path: TrackPath,
+  times: Float64Array,
+  distances: Float64Array,
+  direction: number,
+  gpsPosition: TrainPosition
+): TrainMotion | null => {
+  const fixEpochSeconds = gpsPosition.timestamp;
+  if (
+    fixEpochSeconds == null ||
+    !isFiniteNumber(gpsPosition.latitude) ||
+    !isFiniteNumber(gpsPosition.longitude)
+  ) {
+    return null;
+  }
+
+  let fixDistance: number | null = null;
+  let fixScheduledEpoch = 0;
+  for (const candidate of projectionCandidates(path, gpsPosition.latitude, gpsPosition.longitude)) {
+    const scheduledEpoch = scheduledEpochAtDistance(
+      times,
+      distances,
+      direction,
+      candidate.distanceMeters,
+      fixEpochSeconds
+    );
+    if (
+      fixDistance == null ||
+      Math.abs(fixEpochSeconds - scheduledEpoch) < Math.abs(fixEpochSeconds - fixScheduledEpoch)
+    ) {
+      fixDistance = candidate.distanceMeters;
+      fixScheduledEpoch = scheduledEpoch;
+    }
+  }
+  const delaySeconds = fixEpochSeconds - fixScheduledEpoch;
+  if (fixDistance == null || Math.abs(delaySeconds) > MAX_FIX_DELAY_SECONDS) {
+    return null;
+  }
+
+  const shiftedTimes = [fixEpochSeconds];
+  const shiftedDistances = [fixDistance];
+  for (let index = 0; index < times.length; index++) {
+    if (times[index] <= fixScheduledEpoch) continue;
+    const previousDistance = shiftedDistances[shiftedDistances.length - 1];
+    shiftedTimes.push(times[index] + delaySeconds);
+    shiftedDistances.push(
+      direction * (distances[index] - previousDistance) < 0 ? previousDistance : distances[index]
+    );
+  }
+
+  return {
+    times: Float64Array.from(shiftedTimes),
+    path,
+    distances: Float64Array.from(shiftedDistances),
+    direction,
+    latitudes: null,
+    longitudes: null,
+  };
+};
+
 const buildTrackMotion = (
   waypoints: TrainAnimationWaypoint[],
+  gpsPosition: TrainPosition | null,
   tracks: TrainTracksResponse,
   routeId: string
 ): TrainMotion | null => {
-  const paths = routeTrackPaths(tracks, routeId);
-  if (paths.length === 0) {
-    return null;
-  }
-
-  const waypointCount = waypoints.length;
   let bestPath: TrackPath | null = null;
-  let bestDistances: Float64Array | null = null;
-  let bestScore = Infinity;
+  let bestFit: TrackFit | null = null;
 
-  for (const path of paths) {
-    const distances = new Float64Array(waypointCount);
-    let score = 0;
-    for (let index = 0; index < waypointCount; index++) {
-      projectOntoPath(path, waypoints[index].latitude, waypoints[index].longitude);
-      distances[index] = projectedDistanceMeters;
-      score += projectedDistanceSq;
-    }
-    if (score < bestScore) {
-      bestScore = score;
-      bestPath = path;
-      bestDistances = distances;
+  for (const path of routeTrackPaths(tracks, routeId)) {
+    const candidates = waypoints.map((waypoint) =>
+      projectionCandidates(path, waypoint.latitude, waypoint.longitude)
+    );
+    if (candidates.some((options) => options.length === 0)) continue;
+    for (const direction of [1, -1]) {
+      const fit = fitAlongTrack(candidates, direction);
+      if (fit != null && (bestFit == null || fit.cost < bestFit.cost)) {
+        bestPath = path;
+        bestFit = fit;
+      }
     }
   }
 
-  if (bestPath == null || bestDistances == null) {
+  if (bestPath == null || bestFit == null) {
     return null;
   }
 
-  const times = new Float64Array(waypointCount);
-  for (let index = 0; index < waypointCount; index++) {
-    times[index] = waypoints[index].epochSeconds;
-  }
+  const times = Float64Array.from(waypoints, (waypoint) => waypoint.epochSeconds);
+  const fixedMotion =
+    gpsPosition == null
+      ? null
+      : applyGpsFix(bestPath, times, bestFit.distances, bestFit.direction, gpsPosition);
 
-  return { times, path: bestPath, distances: bestDistances, latitudes: null, longitudes: null };
+  return (
+    fixedMotion ?? {
+      times,
+      path: bestPath,
+      distances: bestFit.distances,
+      direction: bestFit.direction,
+      latitudes: null,
+      longitudes: null,
+    }
+  );
 };
 
 export const buildTrainMotion = (
@@ -409,18 +552,19 @@ export const buildTrainMotion = (
   tracks?: TrainTracksResponse,
   routeId?: string
 ): TrainMotion | null => {
-  const waypoints = buildAnimationWaypoints(timetable, gpsPosition);
-  if (waypoints.length === 0) {
+  const stopWaypoints = buildAnimationWaypoints(timetable, null);
+  if (stopWaypoints.length === 0) {
     return null;
   }
 
   if (tracks != null && routeId != null && routeId.length > 0) {
-    const trackMotion = buildTrackMotion(waypoints, tracks, routeId);
+    const trackMotion = buildTrackMotion(stopWaypoints, gpsPosition, tracks, routeId);
     if (trackMotion != null) {
       return trackMotion;
     }
   }
 
+  const waypoints = buildAnimationWaypoints(timetable, gpsPosition);
   const waypointCount = waypoints.length;
   const times = new Float64Array(waypointCount);
   const latitudes = new Float64Array(waypointCount);
@@ -431,7 +575,7 @@ export const buildTrainMotion = (
     longitudes[index] = waypoints[index].longitude;
   }
 
-  return { times, path: null, distances: null, latitudes, longitudes };
+  return { times, path: null, distances: null, direction: 1, latitudes, longitudes };
 };
 
 const sampleAlongTrack = (
@@ -444,7 +588,7 @@ const sampleAlongTrack = (
   const count = times.length;
 
   if (count === 1) {
-    return samplePathAtDistance(path, distances[0], 0, 0);
+    return samplePathAtDistance(path, distances[0], motion.direction, 0);
   }
 
   if (nowEpochSeconds <= times[0]) {
@@ -453,7 +597,7 @@ const sampleAlongTrack = (
     return samplePathAtDistance(
       path,
       distances[0],
-      distances[1] - distances[0],
+      distances[1] - distances[0] || motion.direction,
       duration > 0 ? legMeters / duration : 0
     );
   }
@@ -466,7 +610,7 @@ const sampleAlongTrack = (
     return samplePathAtDistance(
       path,
       distances[lastIndex],
-      distances[lastIndex] - distances[previousIndex],
+      distances[lastIndex] - distances[previousIndex] || motion.direction,
       duration > 0 ? legMeters / duration : 0
     );
   }
@@ -482,9 +626,34 @@ const sampleAlongTrack = (
   return samplePathAtDistance(
     path,
     distanceMeters,
-    distances[nextIndex] - distances[previousIndex],
+    distances[nextIndex] - distances[previousIndex] || motion.direction,
     duration > 0 ? legMeters / duration : 0
   );
+};
+
+const movingLegBearing = (
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  index: number
+): number => {
+  const isAtIndex = (other: number) =>
+    latitudes[other] === latitudes[index] && longitudes[other] === longitudes[index];
+  for (let next = index + 1; next < latitudes.length; next++) {
+    if (!isAtIndex(next)) {
+      return computeBearing(latitudes[index], longitudes[index], latitudes[next], longitudes[next]);
+    }
+  }
+  for (let previous = index - 1; previous >= 0; previous--) {
+    if (!isAtIndex(previous)) {
+      return computeBearing(
+        latitudes[previous],
+        longitudes[previous],
+        latitudes[index],
+        longitudes[index]
+      );
+    }
+  }
+  return 0;
 };
 
 export const sampleTrainMotion = (
@@ -508,32 +677,20 @@ export const sampleTrainMotion = (
   }
 
   if (count === 1 || nowEpochSeconds <= times[0]) {
-    const nextIndex = count > 1 ? 1 : 0;
     return {
       latitude: latitudes[0],
       longitude: longitudes[0],
-      bearing: computeBearing(
-        latitudes[0],
-        longitudes[0],
-        latitudes[nextIndex],
-        longitudes[nextIndex]
-      ),
+      bearing: movingLegBearing(latitudes, longitudes, 0),
       speedMetersPerSecond: 0,
     };
   }
 
   const lastIndex = count - 1;
   if (nowEpochSeconds >= times[lastIndex]) {
-    const previousIndex = lastIndex - 1;
     return {
       latitude: latitudes[lastIndex],
       longitude: longitudes[lastIndex],
-      bearing: computeBearing(
-        latitudes[previousIndex],
-        longitudes[previousIndex],
-        latitudes[lastIndex],
-        longitudes[lastIndex]
-      ),
+      bearing: movingLegBearing(latitudes, longitudes, lastIndex),
       speedMetersPerSecond: 0,
     };
   }
@@ -554,12 +711,7 @@ export const sampleTrainMotion = (
       latitudes[previousIndex] + (latitudes[nextIndex] - latitudes[previousIndex]) * progress,
     longitude:
       longitudes[previousIndex] + (longitudes[nextIndex] - longitudes[previousIndex]) * progress,
-    bearing: computeBearing(
-      latitudes[previousIndex],
-      longitudes[previousIndex],
-      latitudes[nextIndex],
-      longitudes[nextIndex]
-    ),
+    bearing: movingLegBearing(latitudes, longitudes, previousIndex),
     speedMetersPerSecond: duration > 0 ? legMeters / duration : 0,
   };
 };

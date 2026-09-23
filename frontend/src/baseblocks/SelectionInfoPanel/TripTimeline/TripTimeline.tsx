@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { getTrainTimetable } from "@/client-api/train";
+import { isTimetableStale } from "@/lib/timetableRefresh";
 import {
   effectiveStopTimeEpoch,
   getStopOrderingMoment,
@@ -8,9 +9,9 @@ import {
   stopDepartureEpoch,
 } from "@/lib/timetableStopMoments";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
-import { getRouteShortNameFromRouteId } from "@/lib/trainRouteId";
-import { useAppContext } from "@/providers/AppProvider";
-import type { TimetableData, TimetableStop } from "@/types/train/timetable";
+import { createRouteShortNameLookup } from "@/lib/trainRouteId";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
+import type { TimetableStop } from "@/types/train/timetable";
 import { isTimetableData } from "@/types/train/timetable";
 import styles from "./TripTimeline.module.css";
 
@@ -62,7 +63,7 @@ const formatScheduledTime = (value: string | null): string => {
 
 const formatTimestamp = (value: number | null): string | null => {
   if (!value) return null;
-  return DateTime.fromSeconds(value).toFormat("h:mm:ss a");
+  return DateTime.fromSeconds(value, { zone: "Australia/Sydney" }).toFormat("h:mm:ss a");
 };
 
 const formatRawScalar = (value: string | number | boolean | null | undefined): string => {
@@ -219,7 +220,8 @@ export const TripTimeline = ({
   showRaw,
   routeColor: routeColorProp,
 }: TripTimelineProps) => {
-  const { trainStatic, trainRealtime, cacheTimetable } = useAppContext();
+  const { trainStatic } = useAppContext();
+  const { trainRealtime, timetables, cacheTimetable } = useLiveTrainData();
   const [nowEpochSeconds, setNowEpochSeconds] = useState(() => Math.floor(Date.now() / 1000));
   const nextStopRef = useRef<HTMLLIElement | null>(null);
   const stopNamesById = useMemo(() => {
@@ -232,24 +234,19 @@ export const TripTimeline = ({
     return map;
   }, [trainStatic.stops]);
 
-  const contextTimetable = useMemo(
-    () =>
-      trainStatic.timetables.find((item) => isTimetableData(item) && item.tripId === tripId) ??
-      null,
-    [trainStatic.timetables, tripId]
-  );
+  const timetable = timetables.get(tripId) ?? null;
+  const tripUpdatesFetchedAt = trainRealtime.tripUpdates.fetchedAt;
+  const refreshKey =
+    timetable == null || isTimetableStale(timetable, tripUpdatesFetchedAt)
+      ? tripUpdatesFetchedAt
+      : null;
 
-  const [fetchedTimetable, setFetchedTimetable] = useState<TimetableData | null>(null);
   const [timetableFetchStatus, setTimetableFetchStatus] = useState<"idle" | "loading" | "error">(
     "idle"
   );
 
   useEffect(() => {
-    setFetchedTimetable(null);
-    setTimetableFetchStatus("idle");
-
-    if (!tripId) return;
-    if (contextTimetable != null) return;
+    if (!tripId || refreshKey == null) return;
 
     let cancelled = false;
 
@@ -259,16 +256,13 @@ export const TripTimeline = ({
         const data = await getTrainTimetable(tripId);
         if (cancelled) return;
         if (!isTimetableData(data)) {
-          setFetchedTimetable(null);
           setTimetableFetchStatus("error");
           return;
         }
         cacheTimetable(data);
-        setFetchedTimetable(data);
         setTimetableFetchStatus("idle");
       } catch {
         if (cancelled) return;
-        setFetchedTimetable(null);
         setTimetableFetchStatus("error");
       }
     };
@@ -278,12 +272,14 @@ export const TripTimeline = ({
     return () => {
       cancelled = true;
     };
-  }, [tripId, contextTimetable, cacheTimetable]);
-
-  const timetable = contextTimetable ?? fetchedTimetable;
+  }, [tripId, refreshKey, cacheTimetable]);
+  const getRouteShortName = useMemo(
+    () => createRouteShortNameLookup(trainStatic.tracks.features),
+    [trainStatic.tracks.features]
+  );
   const routeShortName = useMemo(
-    () => timetable?.routeShortName ?? getRouteShortNameFromRouteId(timetable?.routeId),
-    [timetable]
+    () => timetable?.routeShortName ?? getRouteShortName(timetable?.routeId),
+    [timetable, getRouteShortName]
   );
   const resolvedRouteColor = useMemo(() => {
     if (!routeShortName) return "#999999";

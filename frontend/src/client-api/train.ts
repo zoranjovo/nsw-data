@@ -6,6 +6,7 @@ import type { TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api";
+const REALTIME_TIMEOUT_MS = 10_000;
 
 const toRequestError = (error: unknown, fallbackMessage: string): Error => {
   if (axios.isAxiosError(error)) {
@@ -40,9 +41,13 @@ export const getTrainTracks = (): Promise<TrainTracksResponse> =>
 export const getTrainStops = (): Promise<TrainStopsResponse> =>
   request(() => axios.get<TrainStopsResponse>(`${API_URL}/trains/stops`), "Failed to load stops");
 
-export const getTrainRealtime = (): Promise<TrainRealtimeResponse> =>
+export const getTrainRealtime = (signal?: AbortSignal): Promise<TrainRealtimeResponse> =>
   request(
-    () => axios.get<TrainRealtimeResponse>(`${API_URL}/trains/realtime`),
+    () =>
+      axios.get<TrainRealtimeResponse>(`${API_URL}/trains/realtime`, {
+        signal,
+        timeout: REALTIME_TIMEOUT_MS,
+      }),
     "Failed to load realtime data"
   );
 
@@ -58,8 +63,8 @@ export const getTrainTimetable = (tripId: string): Promise<TimetableData> =>
     "Failed to load timetable data"
   );
 
-export const getTrainTimetableBulk = (tripIds: string[]): Promise<TimetableData[]> =>
+export const getTrainTimetableBulk = (tripIds: string[]): Promise<(TimetableData | null)[]> =>
   request(
-    () => axios.post<TimetableData[]>(`${API_URL}/trains/timetable/bulk`, { tripIds }),
+    () => axios.post<(TimetableData | null)[]>(`${API_URL}/trains/timetable/bulk`, { tripIds }),
     "Failed to load timetable data"
   );
