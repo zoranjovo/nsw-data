@@ -419,6 +419,7 @@ export const buildAnimationWaypoints = (
   const stopWaypoints = timetable.stops.flatMap<TrainAnimationWaypoint>((stop) => {
     const epochSeconds = stopEpochs(stop);
     if (
+      stop.skipped ||
       epochSeconds.length === 0 ||
       !isFiniteNumber(stop.latitude) ||
       !isFiniteNumber(stop.longitude)
@@ -435,7 +436,12 @@ export const buildAnimationWaypoints = (
     }));
   });
 
-  stopWaypoints.sort((a, b) => a.epochSeconds - b.epochSeconds);
+  for (let index = stopWaypoints.length - 2; index >= 0; index--) {
+    stopWaypoints[index].epochSeconds = Math.min(
+      stopWaypoints[index].epochSeconds,
+      stopWaypoints[index + 1].epochSeconds
+    );
+  }
 
   const firstStopTime = stopWaypoints[0]?.epochSeconds;
   const lastStopTime = stopWaypoints[stopWaypoints.length - 1]?.epochSeconds;
