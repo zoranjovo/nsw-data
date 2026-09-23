@@ -178,6 +178,42 @@ type TrackFit = {
   cost: number;
 };
 
+const projectOntoSegment = (
+  path: TrackPath,
+  index: number,
+  px: number,
+  py: number
+): TrackProjection => {
+  const ax = path.xs[index];
+  const ay = path.ys[index];
+  const dx = path.xs[index + 1] - ax;
+  const dy = path.ys[index + 1] - ay;
+  const lengthSq = dx * dx + dy * dy;
+  let t = lengthSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lengthSq;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const offsetX = px - (ax + t * dx);
+  const offsetY = py - (ay + t * dy);
+  return {
+    distanceMeters: path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t,
+    offsetSq: offsetX * offsetX + offsetY * offsetY,
+  };
+};
+
+const nearestProjection = (
+  path: TrackPath,
+  latitude: number,
+  longitude: number
+): TrackProjection => {
+  const px = longitude * METERS_PER_DEGREE * path.cosLat;
+  const py = latitude * METERS_PER_DEGREE;
+  let nearest = projectOntoSegment(path, 0, px, py);
+  for (let index = 1; index < path.lons.length - 1; index++) {
+    const projection = projectOntoSegment(path, index, px, py);
+    if (projection.offsetSq < nearest.offsetSq) nearest = projection;
+  }
+  return nearest;
+};
+
 const projectionCandidates = (
   path: TrackPath,
   latitude: number,
@@ -200,21 +236,9 @@ const projectionCandidates = (
     const startIndex = chunk * SEGMENTS_PER_CHUNK;
     const endIndex = Math.min(path.lons.length - 1, startIndex + SEGMENTS_PER_CHUNK);
     for (let index = startIndex; index < endIndex; index++) {
-      const ax = path.xs[index];
-      const ay = path.ys[index];
-      const dx = path.xs[index + 1] - ax;
-      const dy = path.ys[index + 1] - ay;
-      const lengthSq = dx * dx + dy * dy;
-      let t = lengthSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lengthSq;
-      t = t < 0 ? 0 : t > 1 ? 1 : t;
-      const offsetX = px - (ax + t * dx);
-      const offsetY = py - (ay + t * dy);
-      const offsetSq = offsetX * offsetX + offsetY * offsetY;
-      if (offsetSq <= radiusSq) {
-        hits.push({
-          distanceMeters: path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t,
-          offsetSq,
-        });
+      const projection = projectOntoSegment(path, index, px, py);
+      if (projection.offsetSq <= radiusSq) {
+        hits.push(projection);
       }
     }
   }
@@ -511,10 +535,12 @@ const buildTrackMotion = (
   let bestFit: TrackFit | null = null;
 
   for (const path of routeTrackPaths(tracks, routeId)) {
-    const candidates = waypoints.map((waypoint) =>
-      projectionCandidates(path, waypoint.latitude, waypoint.longitude)
-    );
-    if (candidates.some((options) => options.length === 0)) continue;
+    const candidates = waypoints.map((waypoint) => {
+      const options = projectionCandidates(path, waypoint.latitude, waypoint.longitude);
+      return options.length > 0
+        ? options
+        : [nearestProjection(path, waypoint.latitude, waypoint.longitude)];
+    });
     for (const direction of [1, -1]) {
       const fit = fitAlongTrack(candidates, direction);
       if (fit != null && (bestFit == null || fit.cost < bestFit.cost)) {
