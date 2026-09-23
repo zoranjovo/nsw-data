@@ -5,7 +5,7 @@ import { PopupSheet } from "@/components/PopupSheet/PopupSheet";
 import { alertsForLine } from "@/lib/alertsForLine";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
 import { createRouteShortNameLookup } from "@/lib/trainRouteId";
-import { useAppContext } from "@/providers/AppProvider";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainAlert } from "@/types/train/alerts";
 import type { TrainTrackProperties } from "@/types/train/tracks";
 import styles from "./LinesSheet.module.css";
@@ -43,7 +43,8 @@ const lineAlertTitle = (alert: TrainAlert): string => {
 type AlertsFetchStatus = "idle" | "loading" | "ready" | "error";
 
 export const LinesSheet = ({ open, onOpenChange }: LinesSheetProps) => {
-  const { trainStatic, staticLoadStatus, trainRealtime } = useAppContext();
+  const { trainStatic, staticLoadStatus } = useAppContext();
+  const { trainRealtime } = useLiveTrainData();
   const lines = useMemo(
     () => uniqueSortedLines(trainStatic.tracks.features),
     [trainStatic.tracks.features]

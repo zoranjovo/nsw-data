@@ -56,3 +56,19 @@ export const buildTrainPositionFeatures = (
 
   return features;
 };
+
+export const trainPositionFeaturesKey = (features: GeoJSON.Feature<GeoJSON.Point>[]): string =>
+  features
+    .map(({ geometry, properties }) =>
+      [
+        properties?.tripId,
+        properties?.vehicleId,
+        geometry.coordinates[0].toFixed(6),
+        geometry.coordinates[1].toFixed(6),
+        properties?.bearing == null ? "" : Math.round(properties.bearing),
+        properties?.isSelected,
+        properties?.isStale,
+        properties?.timestamp,
+      ].join("|")
+    )
+    .join(";");

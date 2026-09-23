@@ -10,9 +10,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { isSameTrain } from "@/lib/trainIdentity";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
 import { createRouteShortNameLookup } from "@/lib/trainRouteId";
-import { useAppContext } from "@/providers/AppProvider";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainPosition } from "@/types/train/train";
 import styles from "./SelectionInfoPanel.module.css";
 import { TripTimeline } from "./TripTimeline/TripTimeline";
@@ -172,6 +173,7 @@ const PanelContent = ({
 
 export const SelectionInfoPanel = () => {
   const { selectedItem, setSelectedItem, trainStatic } = useAppContext();
+  const { trainRealtime } = useLiveTrainData();
   const isMobile = useIsMobile();
 
   const [displayedTrain, setDisplayedTrain] = useState<TrainPosition | null>(null);
@@ -184,6 +186,14 @@ export const SelectionInfoPanel = () => {
 
   const pendingTrainRef = useRef<TrainPosition | null>(null);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const liveTrain = useMemo(() => {
+    if (!displayedTrain) return null;
+    return (
+      trainRealtime.positions.items.find((position) => isSameTrain(position, displayedTrain)) ??
+      displayedTrain
+    );
+  }, [displayedTrain, trainRealtime.positions.items]);
 
   const getRouteShortName = useMemo(
     () => createRouteShortNameLookup(trainStatic.tracks.features),
@@ -280,7 +290,7 @@ export const SelectionInfoPanel = () => {
   const handleClose = () => setSelectedItem(null);
 
   if (isMobile) {
-    if (!displayedTrain) return null;
+    if (!liveTrain) return null;
     return (
       <Sheet open={isOpen} onOpenChange={(open) => !open && handleClose()}>
         <SheetContent side="right" showCloseButton={false} className={styles.mobileSheetContent}>
@@ -289,7 +299,7 @@ export const SelectionInfoPanel = () => {
             <SheetDescription>Train details panel</SheetDescription>
           </SheetHeader>
           <PanelContent
-            train={displayedTrain}
+            train={liveTrain}
             nowEpochSeconds={nowEpochSeconds}
             onClose={handleClose}
             showRaw={showRaw}
@@ -305,9 +315,9 @@ export const SelectionInfoPanel = () => {
   return (
     <aside className={styles.desktopPanelWrap} data-open={isOpen}>
       <div className={styles.desktopSidebar}>
-        {displayedTrain && (
+        {liveTrain && (
           <PanelContent
-            train={displayedTrain}
+            train={liveTrain}
             nowEpochSeconds={nowEpochSeconds}
             onClose={handleClose}
             isDesktop

@@ -1,25 +1,46 @@
 import { trainKey } from "@/lib/trainIdentity";
-import { buildTrainMotion, type TrainMotion } from "@/lib/trainPositionInterpolator";
+import {
+  buildTrainMotion,
+  type InterpolatedTrainPosition,
+  sampleTrainMotion,
+  type TrainMotion,
+} from "@/lib/trainPositionInterpolator";
 import type { TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
+
+const EASE_DURATION_SECONDS = 1;
 
 type CacheEntry = {
   timetable: TimetableData;
   tracks: TrainTracksResponse;
   gpsStamp: string;
   motion: TrainMotion | null;
+  lastSample: InterpolatedTrainPosition | null;
+  easeFrom: InterpolatedTrainPosition | null;
+  easeStartEpochSeconds: number;
 };
 
 const gpsStamp = (position: TrainPosition): string =>
   `${position.timestamp ?? ""}|${position.latitude}|${position.longitude}`;
 
+const easeTowards = (
+  from: InterpolatedTrainPosition,
+  to: InterpolatedTrainPosition,
+  progress: number
+): InterpolatedTrainPosition => ({
+  ...to,
+  latitude: from.latitude + (to.latitude - from.latitude) * progress,
+  longitude: from.longitude + (to.longitude - from.longitude) * progress,
+});
+
 export type TrainMotionCache = {
-  get(
+  sample(
     position: TrainPosition,
     timetable: TimetableData | undefined,
-    tracks: TrainTracksResponse
-  ): TrainMotion | null;
+    tracks: TrainTracksResponse,
+    nowEpochSeconds: number
+  ): InterpolatedTrainPosition | null;
   retainOnly(positions: TrainPosition[]): void;
 };
 
@@ -27,29 +48,47 @@ export const createTrainMotionCache = (): TrainMotionCache => {
   const entries = new Map<string, CacheEntry>();
 
   return {
-    get(position, timetable, tracks) {
+    sample(position, timetable, tracks, nowEpochSeconds) {
       if (!timetable) return null;
 
       const key = trainKey(position);
       const stamp = gpsStamp(position);
-      const cached = entries.get(key);
+      let entry = entries.get(key);
       if (
-        cached != null &&
-        cached.timetable === timetable &&
-        cached.tracks === tracks &&
-        cached.gpsStamp === stamp
+        entry == null ||
+        entry.timetable !== timetable ||
+        entry.tracks !== tracks ||
+        entry.gpsStamp !== stamp
       ) {
-        return cached.motion;
+        const motion = buildTrainMotion(
+          timetable,
+          position,
+          tracks,
+          position.routeId || timetable.routeId
+        );
+        entry = {
+          timetable,
+          tracks,
+          gpsStamp: stamp,
+          motion,
+          lastSample: entry?.lastSample ?? null,
+          easeFrom: entry?.lastSample ?? null,
+          easeStartEpochSeconds: nowEpochSeconds,
+        };
+        entries.set(key, entry);
       }
 
-      const motion = buildTrainMotion(
-        timetable,
-        position,
-        tracks,
-        position.routeId || timetable.routeId
-      );
-      entries.set(key, { timetable, tracks, gpsStamp: stamp, motion });
-      return motion;
+      const target = entry.motion != null ? sampleTrainMotion(entry.motion, nowEpochSeconds) : null;
+      const progress = (nowEpochSeconds - entry.easeStartEpochSeconds) / EASE_DURATION_SECONDS;
+      if (target == null || entry.easeFrom == null || progress >= 1) {
+        entry.easeFrom = null;
+        entry.lastSample = target;
+        return target;
+      }
+
+      const eased = easeTowards(entry.easeFrom, target, Math.max(0, progress));
+      entry.lastSample = eased;
+      return eased;
     },
 
     retainOnly(positions) {
