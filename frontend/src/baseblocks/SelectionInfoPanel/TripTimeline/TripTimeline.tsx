@@ -316,22 +316,22 @@ export const TripTimeline = ({
   }, [stops]);
 
   const nextStopSequence = useMemo(() => {
-    if (stops.length === 0) return null;
+    if (visibleStops.length === 0) return null;
 
-    const nextStop = stops.find((stop) => {
+    const nextStop = visibleStops.find((stop) => {
       const moment = getStopOrderingMoment(stop);
       return moment != null && moment >= nowEpochSeconds;
     });
 
     return nextStop?.stopSequence ?? null;
-  }, [stops, nowEpochSeconds]);
+  }, [visibleStops, nowEpochSeconds]);
   const latestStopMoment = useMemo(() => {
-    const moments = stops
+    const moments = visibleStops
       .map((stop) => getStopOrderingMoment(stop))
       .filter((moment): moment is number => moment != null);
     if (moments.length === 0) return null;
     return Math.max(...moments);
-  }, [stops]);
+  }, [visibleStops]);
   const tripVehicleTimestamp = useMemo(() => {
     const trainPosition = trainRealtime.positions.items.find((item) => item.tripId === tripId);
     return trainPosition?.timestamp ?? null;
