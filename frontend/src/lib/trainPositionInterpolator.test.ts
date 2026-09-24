@@ -172,11 +172,21 @@ describe("buildTrainMotion with a GPS fix", () => {
 });
 
 describe("buildTrainMotion when the shape does not cover the trip", () => {
-  it("falls back to straight lines between stops", () => {
-    const farStops = [0, 2000, 4000].map((east, index) =>
-      stop(index + 1, latAt(20000), lonAt(east), T0 + index * 300, T0 + index * 300 + 30)
-    );
+  const farStops = [0, 2000, 4000].map((east, index) =>
+    stop(index + 1, latAt(20000), lonAt(east), T0 + index * 300, T0 + index * 300 + 30)
+  );
+
+  it("snaps stops far from the track onto it", () => {
     const motion = buildTrainMotion(timetable(farStops), null, straightTrack, "R");
+
+    expect(motion?.path).not.toBeNull();
+    const sample = sampleTrainMotion(motion as NonNullable<typeof motion>, T0 + 315);
+    expect((sample?.latitude ?? 0) - latAt(0)).toBeCloseTo(0, 5);
+    expect(sample?.longitude).toBeCloseTo(lonAt(2000), 5);
+  });
+
+  it("falls back to straight lines between stops when the route has no track", () => {
+    const motion = buildTrainMotion(timetable(farStops), null, straightTrack, "UNKNOWN");
 
     expect(motion?.path).toBeNull();
     const sample = sampleTrainMotion(motion as NonNullable<typeof motion>, T0 + 150);
