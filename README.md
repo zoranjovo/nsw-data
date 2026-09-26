@@ -21,7 +21,7 @@ pnpm dev               # starts on http://localhost:3000
 |---|---|---|
 | `PORT` | `3000` | Port the API listens on |
 | `OPEN_DATA_KEY` | - | NSW Open Data API key (required for live data) |
-| `DEBUG` | `true` | Set to `true` for verbose console logging. This should be `false` in a deployed environment |
+| `DEBUG` | `false` | Set to `true` for verbose console logging. This should be `false` in a deployed environment |
 
 ### Frontend
 

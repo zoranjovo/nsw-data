@@ -45,6 +45,7 @@ export const AppSidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const {
+    currentPage,
     interpolatedTrainMovement,
     setInterpolatedTrainMovement,
     smoothInterpolatedTrainMovement,
@@ -73,7 +74,7 @@ export const AppSidebar = () => {
               <SidebarMenu className={styles.menu}>
                 <SidebarMenuItem className={styles.menuItem}>
                   <SidebarMenuButton
-                    isActive={location.pathname === "/trains"}
+                    isActive={currentPage === "trains"}
                     onClick={() => navigate("/trains")}
                     className={styles.menuButton}
                   >
@@ -101,7 +102,7 @@ export const AppSidebar = () => {
                 </SidebarMenuItem>
                 <SidebarMenuItem className={styles.menuItem}>
                   <SidebarMenuButton
-                    isActive={location.pathname === "/fuel"}
+                    isActive={currentPage === "fuel"}
                     onClick={() => navigate("/fuel")}
                     className={styles.menuButton}
                   >

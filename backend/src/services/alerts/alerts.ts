@@ -38,7 +38,7 @@ const fetchAlertsDeduped = async (): Promise<void> => {
   const nextPromise = fetchAlerts()
     .catch((error) => {
       const staleSnapshot = getAlertsSnapshotData();
-      if (staleSnapshot.alerts.length > 0) {
+      if (staleSnapshot.fetchedAt > 0) {
         debugLog(
           "ALERT",
           `refresh failed, keeping stale cache: ${error instanceof Error ? error.message : String(error)}`
@@ -60,7 +60,7 @@ const fetchAlertsDeduped = async (): Promise<void> => {
 
 export const ensureAlertsFresh = async (force = false): Promise<void> => {
   await ensureFreshSnapshot(getAlertsSnapshotData, fetchAlertsDeduped, ALERTS_TTL_MS, {
-    isFresh: (snapshot, now) => !force && snapshot.alerts.length > 0 && now < snapshot.expiresAt,
+    isFresh: (snapshot, now) => !force && now < snapshot.expiresAt,
   });
 };
 
