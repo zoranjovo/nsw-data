@@ -44,11 +44,17 @@ jobs:
       - name: 🔎 Typecheck backend
         run: cd backend && pnpm run typecheck
 
+      - name: 🧪 Test backend
+        run: cd backend && pnpm run test
+
       - name: 🧹 Lint frontend
         run: cd frontend && pnpm run lint
 
       - name: 🔎 Typecheck frontend
         run: cd frontend && pnpm run typecheck
+
+      - name: 🧪 Test frontend
+        run: cd frontend && pnpm run test
 
       - name: 🔨 Build backend
         run: cd backend && pnpm run build
