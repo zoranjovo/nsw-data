@@ -227,6 +227,24 @@ describe("buildTrainMotion", () => {
     expect(eastOf(sample.longitude)).toBeCloseTo(1000, 0);
   });
 
+  it("uses whichever of a route's shapes the trip runs along", () => {
+    const branch = tracks(
+      Array.from(
+        { length: 101 },
+        (_, index) => [lonAt(0), latAt(index * 100)] as TrainTrackCoordinate
+      )
+    );
+    const branches: TrainTracksResponse = {
+      ...straightTrack,
+      features: [...branch.features, ...straightTrack.features],
+    };
+
+    for (const routeId of ["R", "OTHER"]) {
+      const motion = buildTrainMotion(timetable(straightStops), branches, routeId) as TrainMotion;
+      expect(eastOf(sampleTrainMotion(motion, T0 + 165).longitude)).toBeCloseTo(1000, 0);
+    }
+  });
+
   it("returns nothing when a stop is not on the track, rather than drawing the train off it", () => {
     const stops = straightStops.map((item, index) =>
       index === 2 ? { ...item, latitude: latAt(5000) } : item

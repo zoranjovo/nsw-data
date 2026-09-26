@@ -78,19 +78,24 @@ const buildTrackPath = (coordinates: TrainTrackCoordinate[]): TrackPath | null =
   return { lons, lats, dists };
 };
 
-const trackPathsByResponse = new WeakMap<TrainTracksResponse, Map<string, TrackPath | null>>();
+const trackPathsByResponse = new WeakMap<TrainTracksResponse, Map<string, TrackPath[]>>();
 
-const routeTrackPath = (tracks: TrainTracksResponse, routeId: string): TrackPath | null => {
+const routeTrackPaths = (tracks: TrainTracksResponse, routeId: string): TrackPath[] => {
   let byRouteId = trackPathsByResponse.get(tracks);
   if (!byRouteId) {
     byRouteId = new Map();
     trackPathsByResponse.set(tracks, byRouteId);
   }
-  if (!byRouteId.has(routeId)) {
-    const feature = tracks.features.find((item) => item.properties.route_id === routeId);
-    byRouteId.set(routeId, feature ? buildTrackPath(feature.geometry.coordinates) : null);
+  let paths = byRouteId.get(routeId);
+  if (!paths) {
+    paths = tracks.features.flatMap((feature) => {
+      if (feature.properties.route_id !== routeId) return [];
+      const path = buildTrackPath(feature.geometry.coordinates);
+      return path ? [path] : [];
+    });
+    byRouteId.set(routeId, paths);
   }
-  return byRouteId.get(routeId) ?? null;
+  return paths;
 };
 
 type Projection = {
@@ -227,6 +232,17 @@ const fitToTrack = (path: TrackPath, knots: Knot[]): TrackFit | null => {
   return best;
 };
 
+const bestFit = (paths: TrackPath[], knots: Knot[]): TrackFit | null => {
+  let best: TrackFit | null = null;
+  for (const path of paths) {
+    const fit = fitToTrack(path, knots);
+    if (fit != null && fit.offsetMeters < (best?.offsetMeters ?? Infinity)) {
+      best = fit;
+    }
+  }
+  return best;
+};
+
 export const buildTrainMotion = (
   timetable: TimetableData,
   tracks: TrainTracksResponse,
@@ -237,21 +253,17 @@ export const buildTrainMotion = (
     return null;
   }
 
-  const ownPath = routeTrackPath(tracks, routeId);
-  const ownFit = ownPath != null ? fitToTrack(ownPath, knots) : null;
+  const ownFit = bestFit(routeTrackPaths(tracks, routeId), knots);
   if (ownFit != null) {
     return ownFit.motion;
   }
 
-  let best: TrackFit | null = null;
-  for (const feature of tracks.features) {
-    const path = routeTrackPath(tracks, feature.properties.route_id);
-    const fit = path != null && path !== ownPath ? fitToTrack(path, knots) : null;
-    if (fit != null && fit.offsetMeters < (best?.offsetMeters ?? Infinity)) {
-      best = fit;
-    }
-  }
-  return best?.motion ?? null;
+  const otherRouteIds = new Set(tracks.features.map((feature) => feature.properties.route_id));
+  otherRouteIds.delete(routeId);
+  const otherPaths = [...otherRouteIds].flatMap((otherRouteId) =>
+    routeTrackPaths(tracks, otherRouteId)
+  );
+  return bestFit(otherPaths, knots)?.motion ?? null;
 };
 
 const firstIndexAtOrAfter = (values: Float64Array, target: number): number => {
