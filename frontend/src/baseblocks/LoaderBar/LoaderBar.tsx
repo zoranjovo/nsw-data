@@ -12,12 +12,8 @@ const STATIC_LABELS: Record<StaticResource, string> = {
 };
 
 export const LoaderBar = () => {
-  const { currentPage, staticLoadStatus } = useAppContext();
+  const { staticLoadStatus } = useAppContext();
   const { trainRealtime } = useLiveTrainData();
-
-  if (currentPage !== "trains") {
-    return null;
-  }
 
   const staticRows = (Object.keys(STATIC_LABELS) as StaticResource[])
     .map((resource) => ({

@@ -14,9 +14,8 @@ if (root) {
         <TooltipProvider>
           <AppProvider>
             <Routes>
-              <Route path="/" element={<Navigate to="/trains" replace />} />
-              <Route path="/trains" element={<App />} />
-              <Route path="/fuel" element={<App />} />
+              <Route path="/" element={<App />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </AppProvider>
         </TooltipProvider>

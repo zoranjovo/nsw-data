@@ -26,7 +26,7 @@ const MAX_ZOOM = 20;
 const MIN_ZOOM = 7;
 
 export const MapView = () => {
-  const { currentPage, mapReady, setMapReady } = useAppContext();
+  const { mapReady, setMapReady } = useAppContext();
   const [storedState] = useState(loadMapState);
   const [selectedLayer, setSelectedLayer] = useState<TileLayerOption>(
     () => TILE_LAYERS.find((l) => l.id === storedState.layerId) ?? TILE_LAYERS[0]
@@ -134,7 +134,7 @@ export const MapView = () => {
         <MapContext.Provider value={map}>
           <Terrain3D enabled={terrain3d} layerId={selectedLayer.id} />
           <Buildings3D layerId={selectedLayer.id} />
-          {currentPage === "trains" && mapReady && (
+          {mapReady && (
             <>
               <TrainLines />
               <TrainStations />

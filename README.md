@@ -1,8 +1,8 @@
-# NSW Data
+# NSW Train Map
 
 ### [Deployment](https://nsw.zrn.au)
 
-Real-time NSW train tracker. Shows live train positions, trip timetables, and service alerts on an interactive map. Plan to expand to display fuel station prices and other various datasets available.
+Real-time NSW train tracker. Shows live train positions, trip timetables, and service alerts on an interactive map.
 
 ## Setup
 
