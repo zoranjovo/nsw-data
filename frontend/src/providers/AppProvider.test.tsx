@@ -1,5 +1,4 @@
 import { act, render } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeStop, makeTimetable, makeTrain } from "@/test/fixtures";
 import type { TrainRealtimeResponse } from "@/types/train/realtime";
@@ -36,13 +35,11 @@ const Probe = () => {
   return null;
 };
 
-const renderProvider = (path = "/") =>
+const renderProvider = () =>
   render(
-    <MemoryRouter initialEntries={[path]}>
-      <AppProvider>
-        <Probe />
-      </AppProvider>
-    </MemoryRouter>
+    <AppProvider>
+      <Probe />
+    </AppProvider>
   );
 
 const pollCallbacks = () => {
@@ -139,12 +136,5 @@ describe("AppProvider", () => {
     expect(live.trainRealtime.status).toBe("ready");
     expect(live.trainRealtime.error).toBe("Failed to fetch realtime data");
     expect(live.trainRealtime.positions.items).toHaveLength(1);
-  });
-
-  it("does not poll realtime data away from the trains page", () => {
-    renderProvider("/about");
-
-    expect(mocks.startRealtimePolling).not.toHaveBeenCalled();
-    expect(mocks.stopRealtimePolling).toHaveBeenCalled();
   });
 });

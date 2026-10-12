@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation } from "react-router-dom";
 import { startRealtimePolling, stopRealtimePolling } from "@/fetch/runtime";
 import { loadTrainMovementSettings, saveTrainMovementSettings } from "@/lib/localStorage";
 import type { TrainStopsResponse } from "@/types/train/stops";
@@ -48,7 +47,6 @@ export type StaticLoadStatus = {
 export interface AppState {
   mapReady: boolean;
   setMapReady: Dispatch<SetStateAction<boolean>>;
-  currentPage: string;
   interpolatedTrainMovement: boolean;
   setInterpolatedTrainMovement: Dispatch<SetStateAction<boolean>>;
   smoothInterpolatedTrainMovement: boolean;
@@ -100,8 +98,6 @@ const AppContext = createContext<AppState | null>(null);
 const LiveTrainDataContext = createContext<LiveTrainData | null>(null);
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
-  const location = useLocation();
-  const currentPage = location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase() || "trains";
   const [mapReady, setMapReady] = useState(false);
   const [storedTrainMovementSettings] = useState(loadTrainMovementSettings);
   const [interpolatedTrainMovement, setInterpolatedTrainMovement] = useState(
@@ -127,11 +123,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   }, [staticLoadStatus]);
 
   useEffect(() => {
-    if (currentPage !== "trains") {
-      stopRealtimePolling();
-      return;
-    }
-
     const cancelStaticLoad = loadTrainStaticData(
       setTrainStatic,
       setStaticLoadStatus,
@@ -176,7 +167,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       cancelStaticLoad();
       stopRealtimePolling();
     };
-  }, [currentPage]);
+  }, []);
 
   const cacheTimetables = useCallback((incoming: TimetableData[]) => {
     setTimetables((prev) => {
@@ -222,7 +213,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     () => ({
       mapReady,
       setMapReady,
-      currentPage,
       interpolatedTrainMovement,
       setInterpolatedTrainMovement,
       smoothInterpolatedTrainMovement,
@@ -234,7 +224,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }),
     [
       mapReady,
-      currentPage,
       interpolatedTrainMovement,
       smoothInterpolatedTrainMovement,
       selectedItem,
