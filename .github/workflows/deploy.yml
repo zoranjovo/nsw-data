@@ -1,19 +1,27 @@
 name: 🚀 Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: ["✅ CI"]
+    types:
+      - completed
     branches:
       - main
   workflow_dispatch:
 
+env:
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
 jobs:
   deploy_frontend:
     name: ☁️ Deploy frontend to Cloudflare Pages
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: 📦 Setup pnpm
         uses: pnpm/action-setup@v4
@@ -36,7 +44,7 @@ jobs:
         run: cd frontend && pnpm install --frozen-lockfile
 
       - name: 🔖 Set short SHA
-        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+        run: echo "SHORT_SHA=${DEPLOY_SHA::7}" >> $GITHUB_ENV
 
       - name: 🔨 Build frontend
         env:
@@ -55,11 +63,11 @@ jobs:
 
   deploy_backend:
     name: 🐳 Deploy backend to Coolify
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: 🔖 Set short SHA
-        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+        run: echo "SHORT_SHA=${DEPLOY_SHA::7}" >> $GITHUB_ENV
 
       - name: 🏷️ Update BUILD_HASH env var in Coolify
         run: |
@@ -78,5 +86,5 @@ jobs:
 
       - name: 🚀 Trigger Coolify deployment
         run: |
-          curl -X GET "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
+          curl -sS --fail-with-body -X GET "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
             -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"

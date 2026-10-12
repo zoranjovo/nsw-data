@@ -1,9 +1,8 @@
 import { useEffect } from "react";
-import { syncTrainOverlayLayerOrder } from "../trainMapLayers";
+import { BUILDINGS_3D_LAYER_ID as LAYER_ID, syncTrainOverlayLayerOrder } from "../trainMapLayers";
 import { isMapRemoved, useMapLibre } from "./MapContext";
 
 const SOURCE_ID = "openfreemap-buildings";
-const LAYER_ID = "3d-buildings";
 const DEFAULT_BUILDING_LAYER_IDS = ["building", "building-top"] as const;
 
 type ThemeColors = { low: string; mid: string; high: string; opacity: number };

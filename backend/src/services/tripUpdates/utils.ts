@@ -1,7 +1,12 @@
+import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import type { TripUpdateEntry, TripUpdateStopTime } from "../../types/train/tripUpdates";
-import type { DecodedFeed } from "../gtfsRealtime";
+import { type DecodedFeed, optionalField } from "../gtfsRealtime";
 
 type FeedEntity = DecodedFeed["entity"][number];
+
+const StopRelationship =
+  GtfsRealtimeBindings.transit_realtime.TripUpdate.StopTimeUpdate.ScheduleRelationship;
+const TripRelationship = GtfsRealtimeBindings.transit_realtime.TripDescriptor.ScheduleRelationship;
 
 export const normalizeGtfsRealtimeEpoch = (value: number | null | undefined): number | null => {
   if (value == null || value === 0) {
@@ -25,20 +30,31 @@ const mergeStopTimeUpdate = (
   previous: TripUpdateStopTime | null,
   incoming: TripUpdateStopTime
 ): TripUpdateStopTime => {
+  const inherited = incoming.skipped || incoming.noData ? null : previous;
   return {
     stopId: incoming.stopId,
-    arrivalDelaySeconds: incoming.arrivalDelaySeconds ?? previous?.arrivalDelaySeconds ?? null,
+    stopSequence: incoming.stopSequence ?? previous?.stopSequence ?? null,
+    skipped: incoming.skipped,
+    noData: incoming.noData,
+    arrivalDelaySeconds: incoming.arrivalDelaySeconds ?? inherited?.arrivalDelaySeconds ?? null,
     departureDelaySeconds:
-      incoming.departureDelaySeconds ?? previous?.departureDelaySeconds ?? null,
+      incoming.departureDelaySeconds ?? inherited?.departureDelaySeconds ?? null,
     realtimeArrivalTimestamp:
       normalizeGtfsRealtimeEpoch(incoming.realtimeArrivalTimestamp) ??
-      normalizeGtfsRealtimeEpoch(previous?.realtimeArrivalTimestamp) ??
+      normalizeGtfsRealtimeEpoch(inherited?.realtimeArrivalTimestamp) ??
       null,
     realtimeDepartureTimestamp:
       normalizeGtfsRealtimeEpoch(incoming.realtimeDepartureTimestamp) ??
-      normalizeGtfsRealtimeEpoch(previous?.realtimeDepartureTimestamp) ??
+      normalizeGtfsRealtimeEpoch(inherited?.realtimeDepartureTimestamp) ??
       null,
   };
+};
+
+const isSameStop = (a: TripUpdateStopTime, b: TripUpdateStopTime): boolean => {
+  if (a.stopSequence != null && b.stopSequence != null) {
+    return a.stopSequence === b.stopSequence;
+  }
+  return a.stopId === b.stopId;
 };
 
 const mergeStopTimeUpdates = (
@@ -64,7 +80,7 @@ const mergeStopTimeUpdates = (
       if (usedPrevious[index]) {
         continue;
       }
-      if (previous[index].stopId !== nextStop.stopId) {
+      if (!isSameStop(previous[index], nextStop)) {
         continue;
       }
       matchedIndex = index;
@@ -76,7 +92,7 @@ const mergeStopTimeUpdates = (
         if (usedPrevious[index]) {
           continue;
         }
-        if (previous[index].stopId !== nextStop.stopId) {
+        if (!isSameStop(previous[index], nextStop)) {
           continue;
         }
         matchedIndex = index;
@@ -104,6 +120,10 @@ const mergeStopTimeUpdates = (
   return merged;
 };
 
+const isSameServiceDate = (a: TripUpdateEntry, b: TripUpdateEntry): boolean => {
+  return a.serviceDate == null || b.serviceDate == null || a.serviceDate === b.serviceDate;
+};
+
 export const mergeTripUpdateEntries = (
   previousEntries: TripUpdateEntry[],
   incomingEntries: TripUpdateEntry[]
@@ -113,7 +133,7 @@ export const mergeTripUpdateEntries = (
 
   for (const incomingEntry of incomingEntries) {
     const previousEntry = previousByTripId.get(incomingEntry.tripId);
-    if (!previousEntry) {
+    if (!previousEntry || !isSameServiceDate(previousEntry, incomingEntry)) {
       merged.push(incomingEntry);
       continue;
     }
@@ -123,6 +143,7 @@ export const mergeTripUpdateEntries = (
       routeId: incomingEntry.routeId || previousEntry.routeId,
       vehicleId: incomingEntry.vehicleId ?? previousEntry.vehicleId ?? null,
       serviceDate: incomingEntry.serviceDate ?? previousEntry.serviceDate ?? null,
+      cancelled: incomingEntry.cancelled,
       stopTimeUpdates: mergeStopTimeUpdates(
         previousEntry.stopTimeUpdates,
         incomingEntry.stopTimeUpdates
@@ -141,8 +162,11 @@ export const toStopTimeUpdate = (entity: FeedEntity): TripUpdateEntry | null => 
 
   const stopTimeUpdates: TripUpdateStopTime[] = (tripUpdate.stopTimeUpdate ?? []).map((update) => ({
     stopId: update.stopId ?? "",
-    arrivalDelaySeconds: update.arrival?.delay ?? null,
-    departureDelaySeconds: update.departure?.delay ?? null,
+    stopSequence: optionalField(update, "stopSequence"),
+    skipped: update.scheduleRelationship === StopRelationship.SKIPPED,
+    noData: update.scheduleRelationship === StopRelationship.NO_DATA,
+    arrivalDelaySeconds: optionalField(update.arrival, "delay"),
+    departureDelaySeconds: optionalField(update.departure, "delay"),
     realtimeArrivalTimestamp:
       update.arrival?.time == null ? null : normalizeGtfsRealtimeEpoch(Number(update.arrival.time)),
     realtimeDepartureTimestamp:
@@ -156,6 +180,7 @@ export const toStopTimeUpdate = (entity: FeedEntity): TripUpdateEntry | null => 
     routeId: tripUpdate.trip.routeId ?? "",
     vehicleId: tripUpdate.vehicle?.id ?? null,
     serviceDate: normalizeServiceDate(tripUpdate.trip.startDate),
+    cancelled: tripUpdate.trip.scheduleRelationship === TripRelationship.CANCELED,
     stopTimeUpdates,
   };
 };

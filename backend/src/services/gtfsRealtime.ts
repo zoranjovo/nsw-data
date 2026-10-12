@@ -5,6 +5,13 @@ export type DecodedFeed = ReturnType<
   typeof GtfsRealtimeBindings.transit_realtime.FeedMessage.decode
 >;
 
+export const optionalField = <T extends object, K extends keyof T>(
+  message: T | null | undefined,
+  field: K
+): NonNullable<T[K]> | null => {
+  return message != null && Object.hasOwn(message, field) ? (message[field] ?? null) : null;
+};
+
 export const fetchGtfsRealtimeFeed = async (
   client: AxiosInstance,
   url: string

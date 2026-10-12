@@ -1,7 +1,5 @@
-import { Fuel, Route, Train } from "lucide-react";
-import type { MouseEvent } from "react";
+import { Route } from "lucide-react";
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 import { LinesSheet } from "@/baseblocks/LinesSheet/LinesSheet";
 import {
   Sidebar,
@@ -13,9 +11,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
@@ -24,26 +19,7 @@ import { useAppContext } from "@/providers/AppProvider";
 import { BuildHashFooter } from "./BuildHashFooter/BuildHashFooter";
 import styles from "./Sidebar.module.css";
 
-const handleTrainsSubNav = (pathname: string, navigate: ReturnType<typeof useNavigate>) => {
-  if (pathname !== "/trains") {
-    navigate("/trains");
-  }
-};
-
-const onLinesClick = (
-  e: MouseEvent<HTMLAnchorElement>,
-  pathname: string,
-  navigate: ReturnType<typeof useNavigate>,
-  setLinesOpen: (open: boolean) => void
-) => {
-  e.preventDefault();
-  handleTrainsSubNav(pathname, navigate);
-  setLinesOpen(true);
-};
-
 export const AppSidebar = () => {
-  const location = useLocation();
-  const navigate = useNavigate();
   const {
     interpolatedTrainMovement,
     setInterpolatedTrainMovement,
@@ -60,7 +36,7 @@ export const AppSidebar = () => {
           <div className={styles.headerRow}>
             <div className={styles.headerTitleCluster}>
               <div className={styles.brandTitleWrap}>
-                <p className={styles.brandTitle}>NSW Data</p>
+                <p className={styles.brandTitle}>NSW Train Map</p>
               </div>
             </div>
             <SidebarTrigger className={styles.toggleButton} />
@@ -73,41 +49,13 @@ export const AppSidebar = () => {
               <SidebarMenu className={styles.menu}>
                 <SidebarMenuItem className={styles.menuItem}>
                   <SidebarMenuButton
-                    isActive={location.pathname === "/trains"}
-                    onClick={() => navigate("/trains")}
+                    isActive={linesOpen}
+                    onClick={() => setLinesOpen(true)}
                     className={styles.menuButton}
                   >
-                    <Train className={styles.menuButtonIcon} />
+                    <Route className={styles.menuButtonIcon} />
                     <div className={styles.menuButtonLabelWrap}>
-                      <p className={styles.menuButtonLabel}>Trains</p>
-                    </div>
-                  </SidebarMenuButton>
-                  <div className={styles.subMenuIndent}>
-                    <SidebarMenuSub>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton
-                          isActive={linesOpen}
-                          href="#"
-                          onClick={(e) =>
-                            onLinesClick(e, location.pathname, navigate, setLinesOpen)
-                          }
-                        >
-                          <Route />
-                          <span>Lines</span>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    </SidebarMenuSub>
-                  </div>
-                </SidebarMenuItem>
-                <SidebarMenuItem className={styles.menuItem}>
-                  <SidebarMenuButton
-                    isActive={location.pathname === "/fuel"}
-                    onClick={() => navigate("/fuel")}
-                    className={styles.menuButton}
-                  >
-                    <Fuel className={styles.menuButtonIcon} />
-                    <div className={styles.menuButtonLabelWrap}>
-                      <p className={styles.menuButtonLabel}>Fuel</p>
+                      <p className={styles.menuButtonLabel}>Lines</p>
                     </div>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

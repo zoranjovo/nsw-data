@@ -1,8 +1,11 @@
+import type { TrainTracksResponse } from "./tracks";
+
 export type TimetableStop = {
   stopId: string;
   stopName: string | null;
   stopSequence: number;
   hasRealtimeStopUpdate: boolean;
+  skipped: boolean;
   latitude: number | null;
   longitude: number | null;
   scheduledArrival: string | null;
@@ -33,6 +36,7 @@ export type TimetableData = {
   routeLongName: string | null;
   tripHeadsign: string | null;
   vehicleId: string | null;
+  cancelled: boolean;
   tripUpdatesFetchedAt: number | null;
   staticTimetableFetchedAt: number | null;
   progress: TimetableProgress | null;
@@ -60,10 +64,7 @@ export type StaticTrip = {
 };
 
 export type StaticStopTime = {
-  tripId: string;
   stopId: string;
-  arrivalTime: string | null;
-  departureTime: string | null;
   arrivalSeconds: number | null;
   departureSeconds: number | null;
   stopSequence: number;
@@ -74,5 +75,8 @@ export type StaticTimetableSnapshot = {
   routesById: Map<string, StaticRoute>;
   tripsById: Map<string, StaticTrip>;
   stopTimesByTripId: Map<string, StaticStopTime[]>;
+  stops: StaticStop[];
+  tracks: TrainTracksResponse;
+  snapshotDate: string;
   fetchedAt: number;
 };

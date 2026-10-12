@@ -4,8 +4,8 @@ import { getTrainAlerts } from "@/client-api/train";
 import { PopupSheet } from "@/components/PopupSheet/PopupSheet";
 import { alertsForLine } from "@/lib/alertsForLine";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
-import { getRouteShortNameFromRouteId } from "@/lib/trainRouteId";
-import { useAppContext } from "@/providers/AppProvider";
+import { createRouteShortNameLookup } from "@/lib/trainRouteId";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainAlert } from "@/types/train/alerts";
 import type { TrainTrackProperties } from "@/types/train/tracks";
 import styles from "./LinesSheet.module.css";
@@ -43,21 +43,27 @@ const lineAlertTitle = (alert: TrainAlert): string => {
 type AlertsFetchStatus = "idle" | "loading" | "ready" | "error";
 
 export const LinesSheet = ({ open, onOpenChange }: LinesSheetProps) => {
-  const { trainStatic, staticLoadStatus, trainRealtime } = useAppContext();
+  const { trainStatic, staticLoadStatus } = useAppContext();
+  const { trainRealtime } = useLiveTrainData();
   const lines = useMemo(
     () => uniqueSortedLines(trainStatic.tracks.features),
+    [trainStatic.tracks.features]
+  );
+
+  const getRouteShortName = useMemo(
+    () => createRouteShortNameLookup(trainStatic.tracks.features),
     [trainStatic.tracks.features]
   );
 
   const trainCountByShortName = useMemo(() => {
     const map = new Map<string, number>();
     for (const pos of trainRealtime.positions.items) {
-      const short = getRouteShortNameFromRouteId(pos.routeId);
+      const short = getRouteShortName(pos.routeId);
       if (!short) continue;
       map.set(short, (map.get(short) ?? 0) + 1);
     }
     return map;
-  }, [trainRealtime.positions.items]);
+  }, [trainRealtime.positions.items, getRouteShortName]);
 
   const [selectedShortName, setSelectedShortName] = useState<string | null>(null);
   const [alertsStatus, setAlertsStatus] = useState<AlertsFetchStatus>("idle");
@@ -94,14 +100,14 @@ export const LinesSheet = ({ open, onOpenChange }: LinesSheetProps) => {
   const alertCountByShortName = useMemo(() => {
     const map = new Map<string, number>();
     for (const line of lines) {
-      map.set(line.route_short_name, alertsForLine(line, alerts).length);
+      map.set(line.route_short_name, alertsForLine(line, alerts, getRouteShortName).length);
     }
     return map;
-  }, [lines, alerts]);
+  }, [lines, alerts, getRouteShortName]);
 
   const selectedLineAlerts = useMemo(
-    () => (selected ? alertsForLine(selected, alerts) : []),
-    [selected, alerts]
+    () => (selected ? alertsForLine(selected, alerts, getRouteShortName) : []),
+    [selected, alerts, getRouteShortName]
   );
 
   const showLineAlerts =

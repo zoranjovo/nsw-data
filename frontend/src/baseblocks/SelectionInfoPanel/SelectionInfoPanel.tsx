@@ -10,9 +10,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { isSameTrain } from "@/lib/trainIdentity";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
-import { getRouteShortNameFromRouteId } from "@/lib/trainRouteId";
-import { useAppContext } from "@/providers/AppProvider";
+import { createRouteShortNameLookup } from "@/lib/trainRouteId";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainPosition } from "@/types/train/train";
 import styles from "./SelectionInfoPanel.module.css";
 import { TripTimeline } from "./TripTimeline/TripTimeline";
@@ -36,7 +37,7 @@ const formatUpdatedAt = (timestamp: number | null, nowEpochSeconds: number): str
 };
 
 const formatSpeed = (speed: number | null): string =>
-  speed == null ? "—" : `${Math.round(speed)} km/h`;
+  speed == null ? "—" : `${Math.round(speed * 3.6)} km/h`;
 
 const formatBearing = (bearing: number | null): string =>
   bearing == null ? "—" : `${Math.round(bearing)}°`;
@@ -50,7 +51,7 @@ const RawDetails = ({
 }) => {
   const timestampStr =
     train.timestamp != null
-      ? DateTime.fromSeconds(train.timestamp).toLocaleString({
+      ? DateTime.fromSeconds(train.timestamp, { zone: "Australia/Sydney" }).toLocaleString({
           hour: "numeric",
           minute: "2-digit",
           second: "2-digit",
@@ -172,6 +173,7 @@ const PanelContent = ({
 
 export const SelectionInfoPanel = () => {
   const { selectedItem, setSelectedItem, trainStatic } = useAppContext();
+  const { trainRealtime } = useLiveTrainData();
   const isMobile = useIsMobile();
 
   const [displayedTrain, setDisplayedTrain] = useState<TrainPosition | null>(null);
@@ -185,24 +187,29 @@ export const SelectionInfoPanel = () => {
   const pendingTrainRef = useRef<TrainPosition | null>(null);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const liveTrain = useMemo(() => {
+    if (!displayedTrain) return null;
+    return (
+      trainRealtime.positions.items.find((position) => isSameTrain(position, displayedTrain)) ??
+      displayedTrain
+    );
+  }, [displayedTrain, trainRealtime.positions.items]);
+
+  const getRouteShortName = useMemo(
+    () => createRouteShortNameLookup(trainStatic.tracks.features),
+    [trainStatic.tracks.features]
+  );
+
   const routeShortName = useMemo(() => {
     if (!displayedTrain) return null;
-    return getRouteShortNameFromRouteId(displayedTrain.routeId) ?? displayedTrain.routeId ?? null;
-  }, [displayedTrain]);
+    return getRouteShortName(displayedTrain.routeId) ?? displayedTrain.routeId ?? null;
+  }, [displayedTrain, getRouteShortName]);
 
   const routeColor = useMemo(() => {
     if (!displayedTrain) return "#6b7280";
-    const routeIdPrefix = getRouteShortNameFromRouteId(displayedTrain.routeId) ?? "";
     const track =
-      (routeIdPrefix &&
-        trainStatic.tracks.features.find(
-          (f) => getRouteShortNameFromRouteId(f.properties.route_id) === routeIdPrefix
-        )) ||
-      (routeShortName &&
-        trainStatic.tracks.features.find(
-          (f) => f.properties.route_short_name === routeShortName
-        )) ||
-      undefined;
+      trainStatic.tracks.features.find((f) => f.properties.route_id === displayedTrain.routeId) ??
+      trainStatic.tracks.features.find((f) => f.properties.route_short_name === routeShortName);
     return resolveTrainLineColor(
       track?.properties.route_short_name ?? routeShortName ?? "",
       track?.properties.route_color ?? ""
@@ -283,7 +290,7 @@ export const SelectionInfoPanel = () => {
   const handleClose = () => setSelectedItem(null);
 
   if (isMobile) {
-    if (!displayedTrain) return null;
+    if (!liveTrain) return null;
     return (
       <Sheet open={isOpen} onOpenChange={(open) => !open && handleClose()}>
         <SheetContent side="right" showCloseButton={false} className={styles.mobileSheetContent}>
@@ -292,7 +299,7 @@ export const SelectionInfoPanel = () => {
             <SheetDescription>Train details panel</SheetDescription>
           </SheetHeader>
           <PanelContent
-            train={displayedTrain}
+            train={liveTrain}
             nowEpochSeconds={nowEpochSeconds}
             onClose={handleClose}
             showRaw={showRaw}
@@ -308,9 +315,9 @@ export const SelectionInfoPanel = () => {
   return (
     <aside className={styles.desktopPanelWrap} data-open={isOpen}>
       <div className={styles.desktopSidebar}>
-        {displayedTrain && (
+        {liveTrain && (
           <PanelContent
-            train={displayedTrain}
+            train={liveTrain}
             nowEpochSeconds={nowEpochSeconds}
             onClose={handleClose}
             isDesktop

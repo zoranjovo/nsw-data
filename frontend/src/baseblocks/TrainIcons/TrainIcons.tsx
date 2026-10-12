@@ -1,9 +1,9 @@
 import type maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
+import { isTimetableStale } from "@/lib/timetableRefresh";
 import { createTrainMotionCache } from "@/lib/trainMotionCache";
-import { sampleTrainMotion } from "@/lib/trainPositionInterpolator";
-import { useAppContext } from "@/providers/AppProvider";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import { isTimetableData, type TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
@@ -11,7 +11,7 @@ import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
 import { getGeoJSONSource } from "../MapView/mapSources";
 import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
 import { syncTrainOverlayLayerOrder, TRAIN_POSITIONS_LAYER_ID } from "../trainMapLayers";
-import { buildTrainPositionFeatures } from "./trainPositionFeatures";
+import { buildTrainPositionFeatures, trainPositionFeaturesKey } from "./trainPositionFeatures";
 import {
   addTrainPositionsLayer,
   removeTrainPositionsLayer,
@@ -20,6 +20,8 @@ import {
 import { trainUpdateIntervalMs } from "./trainUpdateRate";
 
 const TIMETABLE_PREFETCH_DEBOUNCE_MS = 200;
+const MISSING_TIMETABLE_RETRY_MS = 10 * 60 * 1000;
+const FAILED_PREFETCH_RETRY_MS = 30 * 1000;
 const VIEWPORT_PADDING_RATIO = 0.25;
 
 const uniqueTripIds = (tripIds: string[]): string[] => [
@@ -33,29 +35,30 @@ export const TrainIcons = () => {
     selectedItem,
     interpolatedTrainMovement,
     smoothInterpolatedTrainMovement,
-    trainRealtime,
     trainStatic,
-    cacheTimetables,
   } = useAppContext();
+  const { trainRealtime, timetables, cacheTimetables } = useLiveTrainData();
 
   const positionsRef = useRef<TrainPosition[]>([]);
-  const timetablesByTripIdRef = useRef<Map<string, TimetableData>>(new Map());
+  const timetablesByTripIdRef = useRef<Map<string, TimetableData>>(timetables);
+  const tripUpdatesFetchedAtRef = useRef(trainRealtime.tripUpdates.fetchedAt);
   const tracksRef = useRef<TrainTracksResponse>(trainStatic.tracks);
   const motionCacheRef = useRef(createTrainMotionCache());
   const selectedItemRef = useRef(selectedItem);
   const interpolatedRef = useRef(interpolatedTrainMovement);
-  const cachedTimetableTripIdsRef = useRef<Set<string>>(new Set());
-  const failedPrefetchTripIdsRef = useRef<Set<string>>(new Set());
+  const prefetchRetryAtRef = useRef<Map<string, number>>(new Map());
   const inFlightTimetableTripIdsRef = useRef<Set<string>>(new Set());
   const schedulePrefetchRef = useRef<(() => void) | null>(null);
+  const lastFeaturesKeyRef = useRef("");
 
   const fetchAndCacheTimetables = useCallback(
-    async (tripIds: string[], options?: { force?: boolean }) => {
-      const force = options?.force ?? false;
+    async (tripIds: string[]) => {
+      const now = Date.now();
       const missingTripIds = uniqueTripIds(tripIds).filter((tripId) => {
-        if (cachedTimetableTripIdsRef.current.has(tripId)) return false;
+        const cached = timetablesByTripIdRef.current.get(tripId);
+        if (cached && !isTimetableStale(cached, tripUpdatesFetchedAtRef.current)) return false;
         if (inFlightTimetableTripIdsRef.current.has(tripId)) return false;
-        return force || !failedPrefetchTripIdsRef.current.has(tripId);
+        return (prefetchRetryAtRef.current.get(tripId) ?? 0) <= now;
       });
       if (missingTripIds.length === 0) return;
 
@@ -65,16 +68,19 @@ export const TrainIcons = () => {
 
       try {
         const data = await getTrainTimetableBulk(missingTripIds);
-        const timetables = data.filter(isTimetableData);
-        cacheTimetables(timetables);
-        for (const timetable of timetables) {
-          failedPrefetchTripIdsRef.current.delete(timetable.tripId);
+        cacheTimetables(data.filter(isTimetableData));
+        const missingRetryAt = Date.now() + MISSING_TIMETABLE_RETRY_MS;
+        for (const [index, tripId] of missingTripIds.entries()) {
+          if (isTimetableData(data[index])) {
+            prefetchRetryAtRef.current.delete(tripId);
+          } else {
+            prefetchRetryAtRef.current.set(tripId, missingRetryAt);
+          }
         }
       } catch {
-        if (!force) {
-          for (const tripId of missingTripIds) {
-            failedPrefetchTripIdsRef.current.add(tripId);
-          }
+        const failedRetryAt = Date.now() + FAILED_PREFETCH_RETRY_MS;
+        for (const tripId of missingTripIds) {
+          prefetchRetryAtRef.current.set(tripId, failedRetryAt);
         }
       } finally {
         for (const tripId of missingTripIds) {
@@ -109,12 +115,12 @@ export const TrainIcons = () => {
         target.bearing = position.bearing ?? null;
         if (!interpolate) return;
 
-        const motion = motionCacheRef.current.get(
+        const sample = motionCacheRef.current.sample(
           position,
           timetablesByTripIdRef.current.get(position.tripId),
-          tracksRef.current
+          tracksRef.current,
+          nowEpochSeconds
         );
-        const sample = motion != null ? sampleTrainMotion(motion, nowEpochSeconds) : null;
         if (sample == null) {
           target.bearing = null;
           return;
@@ -125,18 +131,16 @@ export const TrainIcons = () => {
       },
     });
 
+    const featuresKey = trainPositionFeaturesKey(features);
+    if (featuresKey === lastFeaturesKeyRef.current) return;
+    lastFeaturesKeyRef.current = featuresKey;
     source.setData({ type: "FeatureCollection", features });
   }, [map, getSelectedTrain]);
 
   useEffect(() => {
-    const byTripId = new Map<string, TimetableData>();
-    for (const timetable of trainStatic.timetables) {
-      byTripId.set(timetable.tripId, timetable);
-    }
-    timetablesByTripIdRef.current = byTripId;
-    cachedTimetableTripIdsRef.current = new Set(byTripId.keys());
+    timetablesByTripIdRef.current = timetables;
     syncPositionsData();
-  }, [trainStatic.timetables, syncPositionsData]);
+  }, [timetables, syncPositionsData]);
 
   useEffect(() => {
     tracksRef.current = trainStatic.tracks;
@@ -159,6 +163,7 @@ export const TrainIcons = () => {
     const addLayer = () => {
       if (isMapRemoved(map)) return;
       addTrainPositionsLayer(map);
+      lastFeaturesKeyRef.current = "";
       syncTrainOverlayLayerOrder(map);
       syncPositionsData();
     };
@@ -171,7 +176,7 @@ export const TrainIcons = () => {
       map.getCanvas().style.cursor = "";
     };
 
-    const onClick = async (e: maplibregl.MapMouseEvent) => {
+    const onClick = (e: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [TRAIN_POSITIONS_LAYER_ID] });
       if (features.length === 0) return;
       const feature = features[0];
@@ -193,9 +198,6 @@ export const TrainIcons = () => {
         bearing: props.bearing != null ? Number(props.bearing) : null,
         speed: props.speed != null ? Number(props.speed) : null,
       };
-      if (interpolatedRef.current && tripId && !cachedTimetableTripIdsRef.current.has(tripId)) {
-        await fetchAndCacheTimetables([tripId], { force: true });
-      }
       setSelectedItem({ type: "train", data: selectedTrain });
     };
 
@@ -214,7 +216,11 @@ export const TrainIcons = () => {
       map.off("click", TRAIN_POSITIONS_LAYER_ID, onClick);
       removeTrainPositionsLayer(map);
     };
-  }, [map, setSelectedItem, fetchAndCacheTimetables, syncPositionsData]);
+  }, [map, setSelectedItem, syncPositionsData]);
+
+  useEffect(() => {
+    tripUpdatesFetchedAtRef.current = trainRealtime.tripUpdates.fetchedAt;
+  }, [trainRealtime.tripUpdates.fetchedAt]);
 
   useEffect(() => {
     positionsRef.current = trainRealtime.positions.items;

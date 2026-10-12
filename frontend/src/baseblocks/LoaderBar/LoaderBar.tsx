@@ -1,6 +1,6 @@
 import { AlertCircle } from "lucide-react";
 import { Loader } from "@/baseblocks/Loader/Loader";
-import { useAppContext } from "@/providers/AppProvider";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import styles from "./LoaderBar.module.css";
 
 type StaticResource = "tracks" | "stops" | "timetable";
@@ -12,11 +12,8 @@ const STATIC_LABELS: Record<StaticResource, string> = {
 };
 
 export const LoaderBar = () => {
-  const { currentPage, staticLoadStatus, trainRealtime } = useAppContext();
-
-  if (currentPage !== "trains") {
-    return null;
-  }
+  const { staticLoadStatus } = useAppContext();
+  const { trainRealtime } = useLiveTrainData();
 
   const staticRows = (Object.keys(STATIC_LABELS) as StaticResource[])
     .map((resource) => ({

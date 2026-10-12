@@ -1,4 +1,6 @@
 import { DateTime } from "luxon";
+import { debugLog } from "../utils/debug";
+import { describeError } from "../utils/errors";
 
 export const ensureFreshSnapshot = async <T extends { fetchedAt: number }>(
   getSnapshot: () => T,
@@ -16,6 +18,14 @@ export const ensureFreshSnapshot = async <T extends { fetchedAt: number }>(
     return snapshot;
   }
 
-  await fetchFn();
+  try {
+    await fetchFn();
+  } catch (error) {
+    if (snapshot.fetchedAt === 0) {
+      throw error;
+    }
+    const ageSeconds = Math.round((now - snapshot.fetchedAt) / 1000);
+    debugLog("STALE", `serving snapshot from ${ageSeconds}s ago: ${describeError(error)}`);
+  }
   return getSnapshot();
 };

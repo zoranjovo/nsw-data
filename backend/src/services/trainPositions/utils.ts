@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { TrainPosition } from "../../types/train/train";
-import type { DecodedFeed } from "../gtfsRealtime";
+import { type DecodedFeed, optionalField } from "../gtfsRealtime";
 
 export const toTrainPositions = (feed: DecodedFeed): TrainPosition[] => {
   const positions: TrainPosition[] = [];
@@ -28,13 +28,13 @@ export const toTrainPositions = (feed: DecodedFeed): TrainPosition[] => {
       continue;
     }
 
-    const rawBearing = position.bearing;
+    const rawBearing = optionalField(position, "bearing");
     const bearing =
       rawBearing != null && Number.isFinite(Number(rawBearing))
         ? ((Number(rawBearing) % 360) + 360) % 360
         : null;
 
-    const rawSpeed = position.speed;
+    const rawSpeed = optionalField(position, "speed");
     const speed = rawSpeed != null && Number.isFinite(Number(rawSpeed)) ? Number(rawSpeed) : null;
 
     const rawSeq = vehicle.currentStopSequence;

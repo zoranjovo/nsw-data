@@ -1,8 +1,8 @@
-# NSW Data
+# NSW Train Map
 
 ### [Deployment](https://nsw.zrn.au)
 
-Real-time NSW train tracker. Shows live train positions, trip timetables, and service alerts on an interactive map. Plan to expand to display fuel station prices and other various datasets available.
+Real-time NSW train tracker. Shows live train positions, trip timetables, and service alerts on an interactive map.
 
 ## Setup
 
@@ -21,7 +21,7 @@ pnpm dev               # starts on http://localhost:3000
 |---|---|---|
 | `PORT` | `3000` | Port the API listens on |
 | `OPEN_DATA_KEY` | - | NSW Open Data API key (required for live data) |
-| `DEBUG` | `true` | Set to `true` for verbose console logging. This should be `false` in a deployed environment |
+| `DEBUG` | `false` | Set to `true` for verbose console logging. This should be `false` in a deployed environment |
 
 ### Frontend
 

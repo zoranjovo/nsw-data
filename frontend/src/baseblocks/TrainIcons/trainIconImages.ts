@@ -170,8 +170,9 @@ const IMAGE_FACTORIES: Record<string, (size: number) => ImageData> = {
 };
 
 export const registerTrainIconImages = (map: MaplibreMap, size = ICON_SIZE_PX): void => {
+  const pixelSize = Math.round(size * Math.max(1, window.devicePixelRatio || 1));
   for (const [iconId, createImage] of Object.entries(IMAGE_FACTORIES)) {
     if (map.hasImage(iconId)) continue;
-    map.addImage(iconId, createImage(size), { sdf: false });
+    map.addImage(iconId, createImage(pixelSize), { sdf: false, pixelRatio: pixelSize / size });
   }
 };
