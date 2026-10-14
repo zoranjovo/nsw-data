@@ -119,6 +119,53 @@
   text-overflow: ellipsis;
 }
 
+.fleetBadge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: oklch(0.14 0.01 250 / 0.88);
+  border: 1px solid oklch(1 0 0 / 0.12);
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.fleetBadge[data-kind="cargo"] {
+  background: oklch(0.75 0.14 70 / 0.14);
+  border-color: oklch(0.75 0.14 70 / 0.35);
+}
+
+.fleetBadge[data-kind="unknown"] {
+  border-style: dashed;
+}
+
+.fleetName {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: oklch(0.88 0 0);
+}
+
+.fleetBadge[data-kind="cargo"] .fleetName {
+  color: oklch(0.85 0.12 75);
+}
+
+.fleetBadge[data-kind="unknown"] .fleetName {
+  color: oklch(0.55 0 0);
+  font-weight: 600;
+}
+
+.fleetDetail {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: oklch(0.55 0 0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .closeBtn {
   flex-shrink: 0;
   color: oklch(0.52 0 0);

@@ -28,6 +28,10 @@ vi.mock("@/providers/AppProvider", () => ({
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 
+vi.mock("./TrainModelPreview/TrainModelPreview", () => ({
+  TrainModelPreview: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+}));
+
 vi.mock("./TripTimeline/TripTimeline", () => ({
   TripTimeline: ({ tripId }: { tripId: string }) => <div data-testid="timeline">{tripId}</div>,
 }));
@@ -140,5 +144,24 @@ describe("SelectionInfoPanel", () => {
     act(() => vi.advanceTimersByTime(280));
 
     expect(screen.getByText("Raw data")).toBeTruthy();
+  });
+
+  it("shows which train type is running the service", () => {
+    select(makeTrain("a", { fleetCode: "H", carCount: 4 }));
+    renderPanel();
+
+    expect(screen.getByText("OSCar")).toBeTruthy();
+    expect(screen.getByText("H set · 4 cars")).toBeTruthy();
+  });
+
+  it("labels freight as cargo and unidentified trains as unknown", () => {
+    select(makeTrain("a", { fleetCode: "W" }));
+    const { rerender } = renderPanel();
+    expect(screen.getByText("Cargo")).toBeTruthy();
+
+    select(makeTrain("b"));
+    rerender();
+    act(() => vi.advanceTimersByTime(280));
+    expect(screen.getByText("Unknown")).toBeTruthy();
   });
 });

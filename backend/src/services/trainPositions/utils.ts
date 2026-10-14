@@ -1,8 +1,32 @@
 import { DateTime } from "luxon";
 import type { TrainPosition } from "../../types/train/train";
 import { type DecodedFeed, optionalField } from "../gtfsRealtime";
+import type { TfnswVehicleExtension } from "./tfnswExtensions";
 
-export const toTrainPositions = (feed: DecodedFeed): TrainPosition[] => {
+type TripSetInfo = {
+  setType: string | null;
+  carCount: number | null;
+};
+
+// <trip_name>.<timetable_id>.<timetable_version_id>.<dop_ref>.<set_type>.<number_of_cars>.<trip_instance>
+export const parseTripSetInfo = (tripId: string): TripSetInfo => {
+  const parts = tripId.split(".");
+  if (parts.length !== 7) {
+    return { setType: null, carCount: null };
+  }
+
+  const setType = /^[A-Z]$/.test(parts[4]) ? parts[4] : null;
+  const carCount = Number(parts[5]);
+  return {
+    setType,
+    carCount: Number.isInteger(carCount) && carCount > 0 ? carCount : null,
+  };
+};
+
+export const toTrainPositions = (
+  feed: DecodedFeed,
+  extensionsByEntityId: Map<string, TfnswVehicleExtension> = new Map()
+): TrainPosition[] => {
   const positions: TrainPosition[] = [];
   const now = DateTime.now().toMillis() / 1000;
 
@@ -43,8 +67,12 @@ export const toTrainPositions = (feed: DecodedFeed): TrainPosition[] => {
         ? Math.trunc(Number(rawSeq))
         : null;
 
+    const tripId = vehicle.trip?.tripId ?? "";
+    const tripSetInfo = parseTripSetInfo(tripId);
+    const extension = extensionsByEntityId.get(entity.id);
+
     positions.push({
-      tripId: vehicle.trip?.tripId ?? "",
+      tripId,
       routeId,
       vehicleId: vehicle.vehicle?.id ?? "",
       vehicleLabel: vehicle.vehicle?.label ?? "",
@@ -54,6 +82,8 @@ export const toTrainPositions = (feed: DecodedFeed): TrainPosition[] => {
       bearing,
       speed,
       currentStopSequence,
+      fleetCode: extension?.vehicleModel ?? tripSetInfo.setType,
+      carCount: extension?.carriageCount || tripSetInfo.carCount,
     });
   }
 

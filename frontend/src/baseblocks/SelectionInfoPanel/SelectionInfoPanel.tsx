@@ -10,12 +10,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { describeTrainDestination } from "@/lib/trainDestination";
+import { describeTrainFleet } from "@/lib/trainFleet";
 import { isSameTrain } from "@/lib/trainIdentity";
 import { resolveTrainLineColor } from "@/lib/trainRouteColors";
 import { createRouteShortNameLookup } from "@/lib/trainRouteId";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainPosition } from "@/types/train/train";
 import styles from "./SelectionInfoPanel.module.css";
+import { TrainModelPreview } from "./TrainModelPreview/TrainModelPreview";
 import { TripTimeline } from "./TripTimeline/TripTimeline";
 
 const TRANSITION_DURATION_MS = 280;
@@ -65,6 +68,10 @@ const RawDetails = ({
       <dd>{train.vehicleId || "—"}</dd>
       <dt>Trip ID</dt>
       <dd>{train.tripId || "—"}</dd>
+      <dt>Fleet code</dt>
+      <dd>{train.fleetCode || "—"}</dd>
+      <dt>Cars</dt>
+      <dd>{train.carCount ?? "—"}</dd>
       <dt>Speed</dt>
       <dd>{formatSpeed(train.speed ?? null)}</dd>
       <dt>Bearing</dt>
@@ -77,11 +84,22 @@ const RawDetails = ({
   );
 };
 
+const FleetBadge = ({ train }: { train: TrainPosition }) => {
+  const fleet = describeTrainFleet(train);
+  return (
+    <p className={styles.fleetBadge} data-kind={fleet.kind}>
+      <span className={styles.fleetName}>{fleet.name}</span>
+      {fleet.detail && <span className={styles.fleetDetail}>{fleet.detail}</span>}
+    </p>
+  );
+};
+
 const PanelContent = ({
   train,
   nowEpochSeconds,
   onClose,
   isDesktop,
+  isOpen,
   showRaw,
   onToggleShowRaw,
   routeColor,
@@ -91,11 +109,20 @@ const PanelContent = ({
   nowEpochSeconds: number;
   onClose: () => void;
   isDesktop?: boolean;
+  isOpen: boolean;
   showRaw: boolean;
   onToggleShowRaw: () => void;
   routeColor: string;
   routeShortName: string | null;
 }) => {
+  const { timetables } = useLiveTrainData();
+  const timetable = timetables.get(train.tripId);
+  const destination = describeTrainDestination({
+    tripHeadsign: timetable?.tripHeadsign,
+    vehicleLabel: train.vehicleLabel,
+    lastStopName: timetable?.stops[timetable.stops.length - 1]?.stopName,
+  });
+
   return (
     <div
       className={styles.panelInner}
@@ -119,6 +146,9 @@ const PanelContent = ({
             <X />
           </Button>
         </div>
+        <TrainModelPreview fleetCode={train.fleetCode} destination={destination} isOpen={isOpen}>
+          <FleetBadge train={train} />
+        </TrainModelPreview>
         <div className={styles.statsRow}>
           <div className={styles.stat}>
             <span className={styles.statLabel}>Speed</span>
@@ -302,6 +332,7 @@ export const SelectionInfoPanel = () => {
             train={liveTrain}
             nowEpochSeconds={nowEpochSeconds}
             onClose={handleClose}
+            isOpen={isOpen}
             showRaw={showRaw}
             onToggleShowRaw={() => setShowRaw((v) => !v)}
             routeColor={routeColor}
@@ -321,6 +352,7 @@ export const SelectionInfoPanel = () => {
             nowEpochSeconds={nowEpochSeconds}
             onClose={handleClose}
             isDesktop
+            isOpen={isOpen}
             showRaw={showRaw}
             onToggleShowRaw={() => setShowRaw((v) => !v)}
             routeColor={routeColor}

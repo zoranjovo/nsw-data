@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import type { TrainPositions } from "../../types/train/train";
 import { debugLog } from "../../utils/debug";
 import { tfnswClient } from "../api";
-import { fetchGtfsRealtimeFeed } from "../gtfsRealtime";
+import { decodeGtfsRealtimeFeed, fetchGtfsRealtimeBinary } from "../gtfsRealtime";
 import { ensureFreshSnapshot } from "../snapshotFetch";
 import {
   getTrainPositions,
@@ -10,6 +10,7 @@ import {
   setTrainPositions,
   setTrainPositionsFetchPromise,
 } from "./store";
+import { readTfnswVehicleExtensions } from "./tfnswExtensions";
 import { toTrainPositions } from "./utils";
 
 const TFNSW_VEHICLE_POS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/sydneytrains";
@@ -23,8 +24,11 @@ export const fetchTrainPositions = async (): Promise<void> => {
   }
 
   const nextPromise = (async () => {
-    const feed = await fetchGtfsRealtimeFeed(tfnswClient, TFNSW_VEHICLE_POS_URL);
-    const positions = toTrainPositions(feed);
+    const binary = await fetchGtfsRealtimeBinary(tfnswClient, TFNSW_VEHICLE_POS_URL);
+    const positions = toTrainPositions(
+      decodeGtfsRealtimeFeed(binary),
+      readTfnswVehicleExtensions(binary)
+    );
     const fetchedAt = DateTime.now().toMillis();
     setTrainPositions(positions, fetchedAt);
     debugLog("FETCHED", `train positions (${positions.length} items)`);
