@@ -50,6 +50,15 @@ describe("loadTrainModel", () => {
     expect(model.scene.name).toBe("/train-models/h-set-driving.glb");
   });
 
+  it("loads the lighter variant when asked", async () => {
+    loadAsync.mockImplementation(async (url: string) => sceneFor(url));
+    const { loadTrainModel } = await import("./trainModels");
+
+    await loadTrainModel("D", "driving-lod");
+
+    expect(loadAsync).toHaveBeenCalledWith("/train-models/d-set-driving-lod.glb");
+  });
+
   it("only downloads each model once", async () => {
     loadAsync.mockImplementation(async (url: string) => sceneFor(url));
     const { loadTrainModel } = await import("./trainModels");

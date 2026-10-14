@@ -25,6 +25,8 @@ export const AppSidebar = () => {
     setInterpolatedTrainMovement,
     smoothInterpolatedTrainMovement,
     setSmoothInterpolatedTrainMovement,
+    trainModelsOnMap,
+    setTrainModelsOnMap,
   } = useAppContext();
   const [linesOpen, setLinesOpen] = useState(false);
 
@@ -82,6 +84,16 @@ export const AppSidebar = () => {
               checked={smoothInterpolatedTrainMovement}
               disabled={!interpolatedTrainMovement}
               onChange={(event) => setSmoothInterpolatedTrainMovement(event.target.checked)}
+            />
+            <span className={styles.smoothToggleSwitch} aria-hidden="true" />
+          </label>
+          <label className={styles.smoothToggle}>
+            <span className={styles.smoothToggleText}>Use train models on map</span>
+            <input
+              type="checkbox"
+              className={styles.smoothToggleInput}
+              checked={trainModelsOnMap}
+              onChange={(event) => setTrainModelsOnMap(event.target.checked)}
             />
             <span className={styles.smoothToggleSwitch} aria-hidden="true" />
           </label>

@@ -58,12 +58,14 @@ export const saveMapState = (patch: Partial<MapStoredState>): void => {
 export type TrainMovementSettings = {
   interpolatedTrainMovement: boolean;
   smoothInterpolatedTrainMovement: boolean;
+  trainModelsOnMap: boolean;
 };
 
 const TRAIN_MOVEMENT_KEY = "train-movement-settings";
 const TRAIN_MOVEMENT_DEFAULTS: TrainMovementSettings = {
   interpolatedTrainMovement: true,
   smoothInterpolatedTrainMovement: false,
+  trainModelsOnMap: false,
 };
 
 export const loadTrainMovementSettings = (): TrainMovementSettings => {
@@ -80,6 +82,10 @@ export const loadTrainMovementSettings = (): TrainMovementSettings => {
         typeof parsed.smoothInterpolatedTrainMovement === "boolean"
           ? parsed.smoothInterpolatedTrainMovement
           : TRAIN_MOVEMENT_DEFAULTS.smoothInterpolatedTrainMovement,
+      trainModelsOnMap:
+        typeof parsed.trainModelsOnMap === "boolean"
+          ? parsed.trainModelsOnMap
+          : TRAIN_MOVEMENT_DEFAULTS.trainModelsOnMap,
     };
   } catch {
     return TRAIN_MOVEMENT_DEFAULTS;
@@ -94,6 +100,7 @@ export const saveTrainMovementSettings = (patch: Partial<TrainMovementSettings>)
         patch.interpolatedTrainMovement ?? current.interpolatedTrainMovement,
       smoothInterpolatedTrainMovement:
         patch.smoothInterpolatedTrainMovement ?? current.smoothInterpolatedTrainMovement,
+      trainModelsOnMap: patch.trainModelsOnMap ?? current.trainModelsOnMap,
     };
     window.localStorage.setItem(TRAIN_MOVEMENT_KEY, JSON.stringify(next));
   } catch {

@@ -2,6 +2,7 @@ import type maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
 import { isTimetableStale } from "@/lib/timetableRefresh";
+import { describeTrainDestination } from "@/lib/trainDestination";
 import { createTrainMotionCache } from "@/lib/trainMotionCache";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import { isTimetableData, type TimetableData } from "@/types/train/timetable";
@@ -10,10 +11,21 @@ import type { TrainPosition } from "@/types/train/train";
 import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
 import { getGeoJSONSource } from "../MapView/mapSources";
 import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
-import { syncTrainOverlayLayerOrder, TRAIN_POSITIONS_LAYER_ID } from "../trainMapLayers";
+import {
+  syncTrainOverlayLayerOrder,
+  TRAIN_MODELS_LAYER_ID,
+  TRAIN_POSITIONS_LAYER_ID,
+} from "../trainMapLayers";
+import {
+  createTrainModelsLayer,
+  TRAIN_MODELS_ON_MAP_SETTINGS,
+  type TrainModelInstance,
+  type TrainModelsLayer,
+} from "./trainModelsLayer";
 import { buildTrainPositionFeatures, trainPositionFeaturesKey } from "./trainPositionFeatures";
 import {
   addTrainPositionsLayer,
+  hideTrainIconsFromZoom,
   removeTrainPositionsLayer,
   TRAIN_POSITIONS_SOURCE_ID,
 } from "./trainPositionsLayer";
@@ -35,6 +47,7 @@ export const TrainIcons = () => {
     selectedItem,
     interpolatedTrainMovement,
     smoothInterpolatedTrainMovement,
+    trainModelsOnMap,
     trainStatic,
   } = useAppContext();
   const { trainRealtime, timetables, cacheTimetables } = useLiveTrainData();
@@ -50,6 +63,7 @@ export const TrainIcons = () => {
   const inFlightTimetableTripIdsRef = useRef<Set<string>>(new Set());
   const schedulePrefetchRef = useRef<(() => void) | null>(null);
   const lastFeaturesKeyRef = useRef("");
+  const modelsLayerRef = useRef<TrainModelsLayer | null>(null);
 
   const fetchAndCacheTimetables = useCallback(
     async (tripIds: string[]) => {
@@ -130,6 +144,25 @@ export const TrainIcons = () => {
         target.bearing = sample.bearing;
       },
     });
+
+    modelsLayerRef.current?.update(
+      features.map(({ geometry, properties }): TrainModelInstance => {
+        const tripId = String(properties?.tripId ?? "");
+        const timetable = timetablesByTripIdRef.current.get(tripId);
+        return {
+          key: `${tripId}|${properties?.vehicleId ?? ""}`,
+          fleetCode: properties?.fleetCode ?? null,
+          longitude: geometry.coordinates[0],
+          latitude: geometry.coordinates[1],
+          bearing: properties?.bearing ?? null,
+          destination: describeTrainDestination({
+            tripHeadsign: timetable?.tripHeadsign,
+            vehicleLabel: properties?.vehicleLabel,
+            lastStopName: timetable?.stops[timetable.stops.length - 1]?.stopName,
+          }),
+        };
+      })
+    );
 
     const featuresKey = trainPositionFeaturesKey(features);
     if (featuresKey === lastFeaturesKeyRef.current) return;
@@ -217,6 +250,33 @@ export const TrainIcons = () => {
       removeTrainPositionsLayer(map);
     };
   }, [map, setSelectedItem, syncPositionsData]);
+
+  useEffect(() => {
+    if (!map || !trainModelsOnMap) return;
+    if (isMapRemoved(map)) return;
+
+    const modelsLayer = createTrainModelsLayer(map);
+    modelsLayerRef.current = modelsLayer;
+
+    const addLayer = () => {
+      if (isMapRemoved(map)) return;
+      if (!map.getLayer(TRAIN_MODELS_LAYER_ID)) map.addLayer(modelsLayer.layer);
+      hideTrainIconsFromZoom(map, TRAIN_MODELS_ON_MAP_SETTINGS.minZoom);
+      syncTrainOverlayLayerOrder(map);
+      syncPositionsData();
+    };
+    addLayer();
+    map.on("style.load", addLayer);
+
+    return () => {
+      modelsLayerRef.current = null;
+      modelsLayer.destroy();
+      if (isMapRemoved(map)) return;
+      map.off("style.load", addLayer);
+      if (map.getLayer(TRAIN_MODELS_LAYER_ID)) map.removeLayer(TRAIN_MODELS_LAYER_ID);
+      hideTrainIconsFromZoom(map, null);
+    };
+  }, [map, trainModelsOnMap, syncPositionsData]);
 
   useEffect(() => {
     tripUpdatesFetchedAtRef.current = trainRealtime.tripUpdates.fetchedAt;

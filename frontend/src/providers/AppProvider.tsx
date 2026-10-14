@@ -51,6 +51,8 @@ export interface AppState {
   setInterpolatedTrainMovement: Dispatch<SetStateAction<boolean>>;
   smoothInterpolatedTrainMovement: boolean;
   setSmoothInterpolatedTrainMovement: Dispatch<SetStateAction<boolean>>;
+  trainModelsOnMap: boolean;
+  setTrainModelsOnMap: Dispatch<SetStateAction<boolean>>;
   selectedItem: SelectedItem;
   setSelectedItem: Dispatch<SetStateAction<SelectedItem>>;
   trainStatic: TrainStaticState;
@@ -106,6 +108,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [smoothInterpolatedTrainMovement, setSmoothInterpolatedTrainMovement] = useState(
     storedTrainMovementSettings.smoothInterpolatedTrainMovement
   );
+  const [trainModelsOnMap, setTrainModelsOnMap] = useState(
+    storedTrainMovementSettings.trainModelsOnMap
+  );
   const [selectedItem, setSelectedItem] = useState<SelectedItem>(null);
   const [trainRealtime, setTrainRealtime] = useState<TrainRealtimeState>(initialTrainRealtime);
   const [trainStatic, setTrainStatic] = useState<TrainStaticState>(initialTrainStatic);
@@ -114,8 +119,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     useState<StaticLoadStatus>(initialStaticLoadStatus);
 
   useEffect(() => {
-    saveTrainMovementSettings({ interpolatedTrainMovement, smoothInterpolatedTrainMovement });
-  }, [interpolatedTrainMovement, smoothInterpolatedTrainMovement]);
+    saveTrainMovementSettings({
+      interpolatedTrainMovement,
+      smoothInterpolatedTrainMovement,
+      trainModelsOnMap,
+    });
+  }, [interpolatedTrainMovement, smoothInterpolatedTrainMovement, trainModelsOnMap]);
 
   const staticLoadStatusRef = useRef(staticLoadStatus);
   useEffect(() => {
@@ -217,6 +226,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setInterpolatedTrainMovement,
       smoothInterpolatedTrainMovement,
       setSmoothInterpolatedTrainMovement,
+      trainModelsOnMap,
+      setTrainModelsOnMap,
       selectedItem,
       setSelectedItem,
       trainStatic,
@@ -226,6 +237,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       mapReady,
       interpolatedTrainMovement,
       smoothInterpolatedTrainMovement,
+      trainModelsOnMap,
       selectedItem,
       trainStatic,
       staticLoadStatus,

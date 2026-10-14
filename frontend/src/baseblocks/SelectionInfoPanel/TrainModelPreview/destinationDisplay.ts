@@ -73,7 +73,7 @@ const drawDestination = (canvas: HTMLCanvasElement, destination: TrainDestinatio
   ctx.globalAlpha = 1;
 };
 
-const findDisplayMesh = (train: Object3D): Mesh | null => {
+export const findDisplayMesh = (train: Object3D): Mesh | null => {
   const display = train.getObjectByName("DestinationDisplay");
   let mesh: Mesh | null = null;
   display?.traverse((object) => {
@@ -82,19 +82,25 @@ const findDisplayMesh = (train: Object3D): Mesh | null => {
   return mesh;
 };
 
-// Swaps the model's placeholder display for one that can show any destination
-export const createDestinationDisplay = (train: Object3D): DestinationDisplay | null => {
-  const mesh = findDisplayMesh(train);
-  if (!mesh || Array.isArray(mesh.material)) return null;
+const placeholderAspect = (material: MeshStandardMaterial): number => {
+  const placeholder = material.map?.image as { width?: number; height?: number } | undefined;
+  return placeholder?.width && placeholder?.height ? placeholder.height / placeholder.width : 0.22;
+};
 
-  const original = mesh.material as MeshStandardMaterial;
-  const placeholder = original.map?.image as { width?: number; height?: number } | undefined;
-  const aspect =
-    placeholder?.width && placeholder?.height ? placeholder.height / placeholder.width : 0.22;
+export type DestinationMaterial = {
+  material: MeshStandardMaterial;
+  update: (destination: TrainDestination) => void;
+  dispose: () => void;
+};
 
+// A copy of the model's display material whose texture can show any destination
+export const createDestinationMaterial = (
+  original: MeshStandardMaterial,
+  textureWidth = DESTINATION_DISPLAY_SETTINGS.textureWidth
+): DestinationMaterial => {
   const canvas = document.createElement("canvas");
-  canvas.width = DESTINATION_DISPLAY_SETTINGS.textureWidth;
-  canvas.height = Math.round(canvas.width * aspect);
+  canvas.width = textureWidth;
+  canvas.height = Math.round(textureWidth * placeholderAspect(original));
 
   const texture = new CanvasTexture(canvas);
   texture.flipY = false;
@@ -105,17 +111,33 @@ export const createDestinationDisplay = (train: Object3D): DestinationDisplay | 
   material.map = texture;
   material.emissiveMap = texture;
   material.needsUpdate = true;
-  mesh.material = material;
 
   return {
+    material,
     update: (destination) => {
       drawDestination(canvas, destination);
       texture.needsUpdate = true;
     },
     dispose: () => {
-      mesh.material = original as Material;
       material.dispose();
       texture.dispose();
+    },
+  };
+};
+
+export const createDestinationDisplay = (train: Object3D): DestinationDisplay | null => {
+  const mesh = findDisplayMesh(train);
+  if (!mesh || Array.isArray(mesh.material)) return null;
+
+  const original = mesh.material as MeshStandardMaterial;
+  const display = createDestinationMaterial(original);
+  mesh.material = display.material;
+
+  return {
+    update: display.update,
+    dispose: () => {
+      mesh.material = original as Material;
+      display.dispose();
     },
   };
 };

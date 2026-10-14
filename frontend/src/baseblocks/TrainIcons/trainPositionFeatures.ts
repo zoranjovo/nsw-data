@@ -40,6 +40,7 @@ export const buildTrainPositionFeatures = (
         routeId: position.routeId,
         vehicleId: position.vehicleId,
         vehicleLabel: position.vehicleLabel,
+        fleetCode: position.fleetCode ?? null,
         tripId: position.tripId,
         speed: position.speed,
         timestamp: position.timestamp,

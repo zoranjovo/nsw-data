@@ -17,6 +17,8 @@ const MODEL_ID_BY_FLEET_CODE: Record<string, string> = {
   T: "t-set",
 };
 
+export type TrainModelVariant = "driving" | "driving-lod";
+
 export type TrainModel = {
   id: string;
   scene: Group;
@@ -28,23 +30,31 @@ const modelsById = new Map<string, Promise<Group>>();
 export const trainModelIdFor = (fleetCode: string | null | undefined): string =>
   MODEL_ID_BY_FLEET_CODE[fleetCode?.trim().toUpperCase() ?? ""] ?? FALLBACK_TRAIN_MODEL_ID;
 
-export const trainModelUrl = (id: string): string => `${TRAIN_MODELS_URL}/${id}-driving.glb`;
+export const trainModelUrl = (id: string, variant: TrainModelVariant = "driving"): string =>
+  `${TRAIN_MODELS_URL}/${id}-${variant}.glb`;
 
-const loadModel = (id: string): Promise<Group> => {
-  let model = modelsById.get(id);
+const loadModel = (id: string, variant: TrainModelVariant): Promise<Group> => {
+  const url = trainModelUrl(id, variant);
+  let model = modelsById.get(url);
   if (!model) {
-    model = loader.loadAsync(trainModelUrl(id)).then((gltf) => gltf.scene);
-    modelsById.set(id, model);
+    model = loader.loadAsync(url).then((gltf) => gltf.scene);
+    modelsById.set(url, model);
   }
   return model;
 };
 
-export const loadTrainModel = async (fleetCode: string | null | undefined): Promise<TrainModel> => {
+export const loadTrainModel = async (
+  fleetCode: string | null | undefined,
+  variant: TrainModelVariant = "driving"
+): Promise<TrainModel> => {
   const id = trainModelIdFor(fleetCode);
   try {
-    return { id, scene: await loadModel(id) };
+    return { id, scene: await loadModel(id, variant) };
   } catch (error) {
     if (id === FALLBACK_TRAIN_MODEL_ID) throw error;
-    return { id: FALLBACK_TRAIN_MODEL_ID, scene: await loadModel(FALLBACK_TRAIN_MODEL_ID) };
+    return {
+      id: FALLBACK_TRAIN_MODEL_ID,
+      scene: await loadModel(FALLBACK_TRAIN_MODEL_ID, variant),
+    };
   }
 };

@@ -54,6 +54,15 @@ export const addTrainPositionsLayer = (map: MaplibreMap): void => {
   });
 };
 
+export const hideTrainIconsFromZoom = (map: MaplibreMap, minZoom: number | null): void => {
+  if (!map.getLayer(TRAIN_POSITIONS_LAYER_ID)) return;
+  map.setPaintProperty(
+    TRAIN_POSITIONS_LAYER_ID,
+    "icon-opacity",
+    minZoom == null ? ICON_OPACITY : ["step", ["zoom"], ICON_OPACITY, minZoom, 0]
+  );
+};
+
 export const removeTrainPositionsLayer = (map: MaplibreMap): void => {
   if (!map.getSource(TRAIN_POSITIONS_SOURCE_ID)) return;
   map.removeLayer(TRAIN_POSITIONS_LAYER_ID);
