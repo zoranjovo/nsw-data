@@ -18,32 +18,25 @@ import {
   WebGLRenderer,
 } from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import type { TrainDestination } from "@/lib/trainDestination";
 import { loadTrainModel } from "@/lib/trainModels";
+import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
 import {
   createDestinationMaterial,
   type DestinationMaterial,
   findDisplayMesh,
 } from "../SelectionInfoPanel/TrainModelPreview/destinationDisplay";
 import { TRAIN_MODELS_LAYER_ID } from "../trainMapLayers";
+import type { GetTrainMarkers, TrainMarker } from "./trainMarkers";
 
 export const TRAIN_MODELS_ON_MAP_SETTINGS = {
   minZoom: 16,
+  viewportPadding: 0.25,
   displayTextureWidth: 512,
   exposure: 1.1,
 };
 
-export type TrainModelInstance = {
-  key: string;
-  fleetCode: string | null;
-  longitude: number;
-  latitude: number;
-  bearing: number | null;
-  destination: TrainDestination;
-};
-
 type PlacedTrain = {
-  instance: TrainModelInstance;
+  instance: TrainMarker;
   object: Object3D | null;
   modelId: string | null;
   display: Mesh | null;
@@ -54,13 +47,15 @@ type PlacedTrain = {
 
 export type TrainModelsLayer = {
   layer: CustomLayerInterface;
-  update: (instances: TrainModelInstance[]) => void;
   destroy: () => void;
 };
 
 const MODEL_UP_TO_MAP_UP = new Matrix4().makeRotationX(Math.PI / 2);
 
-export const createTrainModelsLayer = (map: MaplibreMap): TrainModelsLayer => {
+export const createTrainModelsLayer = (
+  map: MaplibreMap,
+  getMarkers: GetTrainMarkers
+): TrainModelsLayer => {
   const scene = new Scene();
   const camera = new PerspectiveCamera();
   const sun = new DirectionalLight(0xffffff, 1.2);
@@ -119,9 +114,13 @@ export const createTrainModelsLayer = (map: MaplibreMap): TrainModelsLayer => {
       .catch(() => {});
   };
 
-  const update = (instances: TrainModelInstance[]) => {
-    const seen = new Set<string>();
-    for (const instance of instances) {
+  const seen = new Set<string>();
+  const syncVisibleTrains = () => {
+    const bounds = paddedVisibleBounds(map, TRAIN_MODELS_ON_MAP_SETTINGS.viewportPadding);
+    seen.clear();
+    for (const instance of getMarkers()) {
+      if (!instance.isNearView) continue;
+      if (!isWithinBounds(bounds, instance.longitude, instance.latitude)) continue;
       seen.add(instance.key);
       let train = trains.get(instance.key);
       if (!train) {
@@ -147,7 +146,6 @@ export const createTrainModelsLayer = (map: MaplibreMap): TrainModelsLayer => {
       if (train.object) scene.remove(train.object);
       trains.delete(key);
     }
-    map.triggerRepaint();
   };
 
   const placeTrains = (centre: MercatorCoordinate) => {
@@ -184,8 +182,10 @@ export const createTrainModelsLayer = (map: MaplibreMap): TrainModelsLayer => {
       renderer.resetState();
     },
     render: (gl, options) => {
-      if (!renderer || trains.size === 0) return;
+      if (!renderer) return;
       if (map.getZoom() < TRAIN_MODELS_ON_MAP_SETTINGS.minZoom) return;
+      syncVisibleTrains();
+      if (trains.size === 0) return;
 
       // Positions are kept relative to the map centre so float32 precision holds at high zoom
       const centre = MercatorCoordinate.fromLngLat(map.getCenter());
@@ -216,5 +216,5 @@ export const createTrainModelsLayer = (map: MaplibreMap): TrainModelsLayer => {
     displayMaterials.clear();
   };
 
-  return { layer, update, destroy };
+  return { layer, destroy };
 };

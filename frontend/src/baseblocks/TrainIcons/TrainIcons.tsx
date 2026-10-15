@@ -3,33 +3,34 @@ import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
 import { isTimetableStale } from "@/lib/timetableRefresh";
 import { describeTrainDestination } from "@/lib/trainDestination";
+import { isSameTrain, trainKey } from "@/lib/trainIdentity";
 import { createTrainMotionCache } from "@/lib/trainMotionCache";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import { isTimetableData, type TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
 import type { TrainPosition } from "@/types/train/train";
 import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
-import { getGeoJSONSource } from "../MapView/mapSources";
-import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
+import { isWithinBounds, metersPerPixel, paddedVisibleBounds } from "../MapView/mapViewport";
 import {
   syncTrainOverlayLayerOrder,
   TRAIN_MODELS_LAYER_ID,
   TRAIN_POSITIONS_LAYER_ID,
 } from "../trainMapLayers";
-import type { TrainModelInstance, TrainModelsLayer } from "./trainModelsLayer";
-import { buildTrainPositionFeatures, trainPositionFeaturesKey } from "./trainPositionFeatures";
-import {
-  addTrainPositionsLayer,
-  hideTrainIconsFromZoom,
-  removeTrainPositionsLayer,
-  TRAIN_POSITIONS_SOURCE_ID,
-} from "./trainPositionsLayer";
+import { pickTrainMarker, type TrainMarker, trainIconSizePx } from "./trainMarkers";
+import { createTrainMarkersLayer, type TrainMarkersLayer } from "./trainMarkersLayer";
+import type { TrainModelsLayer } from "./trainModelsLayer";
 import { trainUpdateIntervalMs } from "./trainUpdateRate";
 
 const TIMETABLE_PREFETCH_DEBOUNCE_MS = 200;
 const MISSING_TIMETABLE_RETRY_MS = 10 * 60 * 1000;
 const FAILED_PREFETCH_RETRY_MS = 30 * 1000;
 const VIEWPORT_PADDING_RATIO = 0.25;
+const STALE_POSITION_SECONDS = 10 * 60;
+const SAMPLE_REUSE_MS = 4;
+const MIN_PICK_RADIUS_PX = 10;
+const MODEL_PICK_HALF_LENGTH_M = 11;
+// Interpolated positions can sit a few km from the raw feed position, so keep a wide margin
+const NEAR_VIEW_MARGIN_DEGREES = 0.05;
 
 const uniqueTripIds = (tripIds: string[]): string[] => [
   ...new Set(tripIds.filter((tripId) => tripId.trim().length > 0)),
@@ -41,7 +42,7 @@ export const TrainIcons = () => {
     setSelectedItem,
     selectedItem,
     interpolatedTrainMovement,
-    smoothInterpolatedTrainMovement,
+    smoothBackgroundMovement,
     trainModelsOnMap,
     trainStatic,
   } = useAppContext();
@@ -57,8 +58,10 @@ export const TrainIcons = () => {
   const prefetchRetryAtRef = useRef<Map<string, number>>(new Map());
   const inFlightTimetableTripIdsRef = useRef<Set<string>>(new Set());
   const schedulePrefetchRef = useRef<(() => void) | null>(null);
-  const lastFeaturesKeyRef = useRef("");
-  const modelsLayerRef = useRef<TrainModelsLayer | null>(null);
+  const markersRef = useRef<TrainMarker[]>([]);
+  const lastSampledAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const markersLayerRef = useRef<TrainMarkersLayer | null>(null);
+  const modelsMinZoomRef = useRef<number | null>(null);
 
   const fetchAndCacheTimetables = useCallback(
     async (tripIds: string[]) => {
@@ -105,146 +108,150 @@ export const TrainIcons = () => {
     return selected?.type === "train" ? (selected.data as TrainPosition) : null;
   }, []);
 
-  const syncPositionsData = useCallback(() => {
-    if (!map) return;
-    if (isMapRemoved(map)) return;
-    const source = getGeoJSONSource(map, TRAIN_POSITIONS_SOURCE_ID);
-    if (!source) return;
+  const repaint = useCallback(() => {
+    if (map && !isMapRemoved(map)) map.triggerRepaint();
+  }, [map]);
+
+  const rebuildMarkers = useCallback(() => {
+    const selectedTrain = getSelectedTrain();
+    markersRef.current = positionsRef.current.map((position): TrainMarker => {
+      const timetable = timetablesByTripIdRef.current.get(position.tripId);
+      return {
+        key: trainKey(position),
+        position,
+        fleetCode: position.fleetCode ?? null,
+        destination: describeTrainDestination({
+          tripHeadsign: timetable?.tripHeadsign,
+          vehicleLabel: position.vehicleLabel,
+          lastStopName: timetable?.stops[timetable.stops.length - 1]?.stopName,
+        }),
+        isSelected: isSameTrain(position, selectedTrain),
+        longitude: position.longitude,
+        latitude: position.latitude,
+        bearing: position.bearing ?? null,
+        isStale: false,
+        isNearView: true,
+      };
+    });
+    lastSampledAtRef.current = Number.NEGATIVE_INFINITY;
+    repaint();
+  }, [getSelectedTrain, repaint]);
+
+  // Both map layers ask for positions while drawing the same frame, so one sample serves both
+  const getMarkers = useCallback((): readonly TrainMarker[] => {
+    const now = performance.now();
+    if (now - lastSampledAtRef.current < SAMPLE_REUSE_MS) return markersRef.current;
+    lastSampledAtRef.current = now;
 
     const nowEpochSeconds = Date.now() / 1000;
-    const interpolate = interpolatedRef.current;
+    const bounds =
+      map && !isMapRemoved(map) ? paddedVisibleBounds(map, VIEWPORT_PADDING_RATIO) : null;
+    for (const marker of markersRef.current) {
+      const { position } = marker;
+      marker.isNearView =
+        bounds == null ||
+        (position.latitude >= bounds.minLat - NEAR_VIEW_MARGIN_DEGREES &&
+          position.latitude <= bounds.maxLat + NEAR_VIEW_MARGIN_DEGREES &&
+          position.longitude >= bounds.minLng - NEAR_VIEW_MARGIN_DEGREES &&
+          position.longitude <= bounds.maxLng + NEAR_VIEW_MARGIN_DEGREES);
+      if (!marker.isNearView) continue;
+      marker.isStale =
+        position.timestamp != null && nowEpochSeconds - position.timestamp > STALE_POSITION_SECONDS;
+      marker.longitude = position.longitude;
+      marker.latitude = position.latitude;
+      marker.bearing = position.bearing ?? null;
+      if (!interpolatedRef.current) continue;
 
-    const features = buildTrainPositionFeatures(positionsRef.current, {
-      nowEpochSeconds,
-      bounds: paddedVisibleBounds(map, VIEWPORT_PADDING_RATIO),
-      selectedTrain: getSelectedTrain(),
-      resolveDisplayPosition: (position, target) => {
-        target.longitude = position.longitude;
-        target.latitude = position.latitude;
-        target.bearing = position.bearing ?? null;
-        if (!interpolate) return;
-
-        const sample = motionCacheRef.current.sample(
-          position,
-          timetablesByTripIdRef.current.get(position.tripId),
-          tracksRef.current,
-          nowEpochSeconds
-        );
-        if (sample == null) {
-          target.bearing = null;
-          return;
-        }
-        target.longitude = sample.longitude;
-        target.latitude = sample.latitude;
-        target.bearing = sample.bearing;
-      },
-    });
-
-    modelsLayerRef.current?.update(
-      features.map(({ geometry, properties }): TrainModelInstance => {
-        const tripId = String(properties?.tripId ?? "");
-        const timetable = timetablesByTripIdRef.current.get(tripId);
-        return {
-          key: `${tripId}|${properties?.vehicleId ?? ""}`,
-          fleetCode: properties?.fleetCode ?? null,
-          longitude: geometry.coordinates[0],
-          latitude: geometry.coordinates[1],
-          bearing: properties?.bearing ?? null,
-          destination: describeTrainDestination({
-            tripHeadsign: timetable?.tripHeadsign,
-            vehicleLabel: properties?.vehicleLabel,
-            lastStopName: timetable?.stops[timetable.stops.length - 1]?.stopName,
-          }),
-        };
-      })
-    );
-
-    const featuresKey = trainPositionFeaturesKey(features);
-    if (featuresKey === lastFeaturesKeyRef.current) return;
-    lastFeaturesKeyRef.current = featuresKey;
-    source.setData({ type: "FeatureCollection", features });
-  }, [map, getSelectedTrain]);
+      const sample = motionCacheRef.current.sample(
+        position,
+        timetablesByTripIdRef.current.get(position.tripId),
+        tracksRef.current,
+        nowEpochSeconds
+      );
+      if (sample == null) {
+        marker.bearing = null;
+        continue;
+      }
+      marker.longitude = sample.longitude;
+      marker.latitude = sample.latitude;
+      marker.bearing = sample.bearing;
+    }
+    return markersRef.current;
+  }, [map]);
 
   useEffect(() => {
     timetablesByTripIdRef.current = timetables;
-    syncPositionsData();
-  }, [timetables, syncPositionsData]);
+    rebuildMarkers();
+  }, [timetables, rebuildMarkers]);
 
   useEffect(() => {
     tracksRef.current = trainStatic.tracks;
-    syncPositionsData();
-  }, [trainStatic.tracks, syncPositionsData]);
+    lastSampledAtRef.current = Number.NEGATIVE_INFINITY;
+    repaint();
+  }, [trainStatic.tracks, repaint]);
 
   useEffect(() => {
     interpolatedRef.current = interpolatedTrainMovement;
-    syncPositionsData();
-  }, [interpolatedTrainMovement, syncPositionsData]);
+    lastSampledAtRef.current = Number.NEGATIVE_INFINITY;
+    repaint();
+  }, [interpolatedTrainMovement, repaint]);
 
   useEffect(() => {
     selectedItemRef.current = selectedItem;
-    syncPositionsData();
-  }, [selectedItem, syncPositionsData]);
+    rebuildMarkers();
+  }, [selectedItem, rebuildMarkers]);
 
   useEffect(() => {
     if (!map) return;
 
+    const markersLayer = createTrainMarkersLayer(map, getMarkers);
+    markersLayerRef.current = markersLayer;
+
     const addLayer = () => {
       if (isMapRemoved(map)) return;
-      addTrainPositionsLayer(map);
-      lastFeaturesKeyRef.current = "";
+      if (!map.getLayer(TRAIN_POSITIONS_LAYER_ID)) map.addLayer(markersLayer.layer);
       syncTrainOverlayLayerOrder(map);
-      syncPositionsData();
     };
     addLayer();
 
-    const onMouseEnter = () => {
-      map.getCanvas().style.cursor = "pointer";
+    const pickAt = (point: maplibregl.Point): TrainMarker | null => {
+      const zoom = map.getZoom();
+      let radius = Math.max(MIN_PICK_RADIUS_PX, trainIconSizePx(zoom) / 2);
+      if (modelsMinZoomRef.current != null && zoom >= modelsMinZoomRef.current) {
+        radius = Math.max(radius, MODEL_PICK_HALF_LENGTH_M / metersPerPixel(map));
+      }
+      return pickTrainMarker(getMarkers(), point, radius, (longitude, latitude) =>
+        map.project([longitude, latitude])
+      );
     };
-    const onMouseLeave = () => {
-      map.getCanvas().style.cursor = "";
+
+    let hovering = false;
+    const onMouseMove = (e: maplibregl.MapMouseEvent) => {
+      const overTrain = pickAt(e.point) != null;
+      if (overTrain === hovering) return;
+      hovering = overTrain;
+      map.getCanvas().style.cursor = overTrain ? "pointer" : "";
     };
 
     const onClick = (e: maplibregl.MapMouseEvent) => {
-      const features = map.queryRenderedFeatures(e.point, { layers: [TRAIN_POSITIONS_LAYER_ID] });
-      if (features.length === 0) return;
-      const feature = features[0];
-      const props = feature.properties ?? {};
-      const coords = (feature.geometry as GeoJSON.Point).coordinates.slice() as [number, number];
-      const vehicleId = String(props.vehicleId ?? "");
-      const tripId = String(props.tripId ?? "");
-      const fromData =
-        positionsRef.current.find((position) => position.tripId === tripId) ??
-        positionsRef.current.find((position) => position.vehicleId === vehicleId);
-      const selectedTrain: TrainPosition = fromData ?? {
-        tripId,
-        routeId: String(props.routeId ?? ""),
-        vehicleId,
-        vehicleLabel: String(props.vehicleLabel ?? vehicleId),
-        latitude: coords[1],
-        longitude: coords[0],
-        timestamp: props.timestamp != null ? Number(props.timestamp) : null,
-        bearing: props.bearing != null ? Number(props.bearing) : null,
-        speed: props.speed != null ? Number(props.speed) : null,
-      };
-      setSelectedItem({ type: "train", data: selectedTrain });
+      const marker = pickAt(e.point);
+      if (marker) setSelectedItem({ type: "train", data: marker.position });
     };
 
     map.on("style.load", addLayer);
-    map.on("moveend", syncPositionsData);
-    map.on("mouseenter", TRAIN_POSITIONS_LAYER_ID, onMouseEnter);
-    map.on("mouseleave", TRAIN_POSITIONS_LAYER_ID, onMouseLeave);
-    map.on("click", TRAIN_POSITIONS_LAYER_ID, onClick);
+    map.on("mousemove", onMouseMove);
+    map.on("click", onClick);
 
     return () => {
+      markersLayerRef.current = null;
       if (isMapRemoved(map)) return;
       map.off("style.load", addLayer);
-      map.off("moveend", syncPositionsData);
-      map.off("mouseenter", TRAIN_POSITIONS_LAYER_ID, onMouseEnter);
-      map.off("mouseleave", TRAIN_POSITIONS_LAYER_ID, onMouseLeave);
-      map.off("click", TRAIN_POSITIONS_LAYER_ID, onClick);
-      removeTrainPositionsLayer(map);
+      map.off("mousemove", onMouseMove);
+      map.off("click", onClick);
+      if (hovering) map.getCanvas().style.cursor = "";
+      if (map.getLayer(TRAIN_POSITIONS_LAYER_ID)) map.removeLayer(TRAIN_POSITIONS_LAYER_ID);
     };
-  }, [map, setSelectedItem, syncPositionsData]);
+  }, [map, setSelectedItem, getMarkers]);
 
   useEffect(() => {
     if (!map || !trainModelsOnMap) return;
@@ -257,16 +264,15 @@ export const TrainIcons = () => {
     import("./trainModelsLayer")
       .then(({ createTrainModelsLayer, TRAIN_MODELS_ON_MAP_SETTINGS }) => {
         if (cancelled || isMapRemoved(map)) return;
-        const layer = createTrainModelsLayer(map);
+        const layer = createTrainModelsLayer(map, getMarkers);
         modelsLayer = layer;
-        modelsLayerRef.current = layer;
+        modelsMinZoomRef.current = TRAIN_MODELS_ON_MAP_SETTINGS.minZoom;
 
         addLayer = () => {
           if (isMapRemoved(map)) return;
           if (!map.getLayer(TRAIN_MODELS_LAYER_ID)) map.addLayer(layer.layer);
-          hideTrainIconsFromZoom(map, TRAIN_MODELS_ON_MAP_SETTINGS.minZoom);
+          markersLayerRef.current?.hideFromZoom(TRAIN_MODELS_ON_MAP_SETTINGS.minZoom);
           syncTrainOverlayLayerOrder(map);
-          syncPositionsData();
         };
         addLayer();
         map.on("style.load", addLayer);
@@ -275,14 +281,14 @@ export const TrainIcons = () => {
 
     return () => {
       cancelled = true;
-      modelsLayerRef.current = null;
+      modelsMinZoomRef.current = null;
       modelsLayer?.destroy();
+      markersLayerRef.current?.hideFromZoom(null);
       if (isMapRemoved(map)) return;
       if (addLayer) map.off("style.load", addLayer);
       if (map.getLayer(TRAIN_MODELS_LAYER_ID)) map.removeLayer(TRAIN_MODELS_LAYER_ID);
-      hideTrainIconsFromZoom(map, null);
     };
-  }, [map, trainModelsOnMap, syncPositionsData]);
+  }, [map, trainModelsOnMap, getMarkers]);
 
   useEffect(() => {
     tripUpdatesFetchedAtRef.current = trainRealtime.tripUpdates.fetchedAt;
@@ -291,9 +297,9 @@ export const TrainIcons = () => {
   useEffect(() => {
     positionsRef.current = trainRealtime.positions.items;
     motionCacheRef.current.retainOnly(trainRealtime.positions.items);
-    syncPositionsData();
+    rebuildMarkers();
     schedulePrefetchRef.current?.();
-  }, [trainRealtime.positions, syncPositionsData]);
+  }, [trainRealtime.positions, rebuildMarkers]);
 
   useEffect(() => {
     if (!map) return;
@@ -301,17 +307,15 @@ export const TrainIcons = () => {
     if (!interpolatedTrainMovement) return;
 
     let frameId: number | null = null;
-    let lastUpdateMs = 0;
+    let lastRepaintMs = 0;
     const animate = (frameMs: number) => {
       frameId = window.requestAnimationFrame(animate);
       if (isMapRemoved(map)) return;
-      // Pushing geometry mid-gesture just competes with the pan/zoom the user is doing
-      if (map.isMoving()) return;
-      if (frameMs - lastUpdateMs < trainUpdateIntervalMs(map, smoothInterpolatedTrainMovement)) {
+      if (frameMs - lastRepaintMs < trainUpdateIntervalMs(map, smoothBackgroundMovement)) {
         return;
       }
-      lastUpdateMs = frameMs;
-      syncPositionsData();
+      lastRepaintMs = frameMs;
+      map.triggerRepaint();
     };
     frameId = window.requestAnimationFrame(animate);
 
@@ -320,7 +324,7 @@ export const TrainIcons = () => {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [map, interpolatedTrainMovement, smoothInterpolatedTrainMovement, syncPositionsData]);
+  }, [map, interpolatedTrainMovement, smoothBackgroundMovement]);
 
   useEffect(() => {
     if (!map) return;

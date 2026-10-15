@@ -23,8 +23,8 @@ export const AppSidebar = () => {
   const {
     interpolatedTrainMovement,
     setInterpolatedTrainMovement,
-    smoothInterpolatedTrainMovement,
-    setSmoothInterpolatedTrainMovement,
+    smoothBackgroundMovement,
+    setSmoothBackgroundMovement,
     trainModelsOnMap,
     setTrainModelsOnMap,
   } = useAppContext();
@@ -77,13 +77,13 @@ export const AppSidebar = () => {
             <span className={styles.smoothToggleSwitch} aria-hidden="true" />
           </label>
           <label className={styles.smoothToggle} data-disabled={!interpolatedTrainMovement}>
-            <span className={styles.smoothToggleText}>Smooth interpolated movement</span>
+            <span className={styles.smoothToggleText}>Smooth background movement</span>
             <input
               type="checkbox"
               className={styles.smoothToggleInput}
-              checked={smoothInterpolatedTrainMovement}
+              checked={smoothBackgroundMovement}
               disabled={!interpolatedTrainMovement}
-              onChange={(event) => setSmoothInterpolatedTrainMovement(event.target.checked)}
+              onChange={(event) => setSmoothBackgroundMovement(event.target.checked)}
             />
             <span className={styles.smoothToggleSwitch} aria-hidden="true" />
           </label>

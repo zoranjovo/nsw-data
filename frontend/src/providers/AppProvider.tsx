@@ -49,8 +49,8 @@ export interface AppState {
   setMapReady: Dispatch<SetStateAction<boolean>>;
   interpolatedTrainMovement: boolean;
   setInterpolatedTrainMovement: Dispatch<SetStateAction<boolean>>;
-  smoothInterpolatedTrainMovement: boolean;
-  setSmoothInterpolatedTrainMovement: Dispatch<SetStateAction<boolean>>;
+  smoothBackgroundMovement: boolean;
+  setSmoothBackgroundMovement: Dispatch<SetStateAction<boolean>>;
   trainModelsOnMap: boolean;
   setTrainModelsOnMap: Dispatch<SetStateAction<boolean>>;
   selectedItem: SelectedItem;
@@ -105,8 +105,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [interpolatedTrainMovement, setInterpolatedTrainMovement] = useState(
     storedTrainMovementSettings.interpolatedTrainMovement
   );
-  const [smoothInterpolatedTrainMovement, setSmoothInterpolatedTrainMovement] = useState(
-    storedTrainMovementSettings.smoothInterpolatedTrainMovement
+  const [smoothBackgroundMovement, setSmoothBackgroundMovement] = useState(
+    storedTrainMovementSettings.smoothBackgroundMovement
   );
   const [trainModelsOnMap, setTrainModelsOnMap] = useState(
     storedTrainMovementSettings.trainModelsOnMap
@@ -121,10 +121,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     saveTrainMovementSettings({
       interpolatedTrainMovement,
-      smoothInterpolatedTrainMovement,
+      smoothBackgroundMovement,
       trainModelsOnMap,
     });
-  }, [interpolatedTrainMovement, smoothInterpolatedTrainMovement, trainModelsOnMap]);
+  }, [interpolatedTrainMovement, smoothBackgroundMovement, trainModelsOnMap]);
 
   const staticLoadStatusRef = useRef(staticLoadStatus);
   useEffect(() => {
@@ -224,8 +224,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setMapReady,
       interpolatedTrainMovement,
       setInterpolatedTrainMovement,
-      smoothInterpolatedTrainMovement,
-      setSmoothInterpolatedTrainMovement,
+      smoothBackgroundMovement,
+      setSmoothBackgroundMovement,
       trainModelsOnMap,
       setTrainModelsOnMap,
       selectedItem,
@@ -236,7 +236,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     [
       mapReady,
       interpolatedTrainMovement,
-      smoothInterpolatedTrainMovement,
+      smoothBackgroundMovement,
       trainModelsOnMap,
       selectedItem,
       trainStatic,

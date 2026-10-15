@@ -1,14 +1,3 @@
-import type { Map as MaplibreMap } from "maplibre-gl";
-
-export const TRAIN_ICON_IDS = {
-  arrow: "train-arrow",
-  arrowSelected: "train-arrow-selected",
-  dot: "train-dot",
-  dotSelected: "train-dot-selected",
-} as const;
-
-const ICON_SIZE_PX = 48;
-
 const BODY_GRADIENT_STOPS: [number, string][] = [
   [0, "rgb(218, 228, 100)"],
   [0.4, "rgb(196, 210, 45)"],
@@ -146,33 +135,39 @@ const dotShape = (ctx: CanvasRenderingContext2D, size: number): ShapeSpec => {
   return { trace, gradientFrom: [cx, cy - radius], gradientTo: [cx, cy + radius] };
 };
 
-const toImageData = (size: number, draw: (ctx: CanvasRenderingContext2D) => void): ImageData => {
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("2D canvas context unavailable");
-  }
-  draw(ctx);
-  return ctx.getImageData(0, 0, size, size);
-};
+// Atlas columns, left to right
+export const TRAIN_ICON_COLUMNS = {
+  arrow: 0,
+  arrowSelected: 1,
+  dot: 2,
+  dotSelected: 3,
+} as const;
 
-const IMAGE_FACTORIES: Record<string, (size: number) => ImageData> = {
-  [TRAIN_ICON_IDS.arrow]: (size) =>
-    toImageData(size, (ctx) => drawShape(ctx, size, unselectedStyle(size), arrowShape(ctx, size))),
-  [TRAIN_ICON_IDS.arrowSelected]: (size) =>
-    toImageData(size, (ctx) => drawShape(ctx, size, selectedStyle(size), arrowShape(ctx, size))),
-  [TRAIN_ICON_IDS.dot]: (size) =>
-    toImageData(size, (ctx) => drawShape(ctx, size, unselectedStyle(size), dotShape(ctx, size))),
-  [TRAIN_ICON_IDS.dotSelected]: (size) =>
-    toImageData(size, (ctx) => drawShape(ctx, size, selectedStyle(size), dotShape(ctx, size))),
-};
+const ICON_DRAWERS: ((ctx: CanvasRenderingContext2D, size: number) => void)[] = [
+  (ctx, size) => drawShape(ctx, size, unselectedStyle(size), arrowShape(ctx, size)),
+  (ctx, size) => drawShape(ctx, size, selectedStyle(size), arrowShape(ctx, size)),
+  (ctx, size) => drawShape(ctx, size, unselectedStyle(size), dotShape(ctx, size)),
+  (ctx, size) => drawShape(ctx, size, selectedStyle(size), dotShape(ctx, size)),
+];
 
-export const registerTrainIconImages = (map: MaplibreMap, size = ICON_SIZE_PX): void => {
-  const pixelSize = Math.round(size * Math.max(1, window.devicePixelRatio || 1));
-  for (const [iconId, createImage] of Object.entries(IMAGE_FACTORIES)) {
-    if (map.hasImage(iconId)) continue;
-    map.addImage(iconId, createImage(pixelSize), { sdf: false, pixelRatio: pixelSize / size });
-  }
+export const TRAIN_ICON_COLUMN_COUNT = ICON_DRAWERS.length;
+
+export const drawTrainIconAtlas = (cellSize: number): HTMLCanvasElement => {
+  const atlas = document.createElement("canvas");
+  atlas.width = cellSize * ICON_DRAWERS.length;
+  atlas.height = cellSize;
+  const atlasCtx = atlas.getContext("2d");
+  if (!atlasCtx) throw new Error("2D canvas context unavailable");
+
+  const cell = document.createElement("canvas");
+  cell.width = cellSize;
+  cell.height = cellSize;
+  const ctx = cell.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context unavailable");
+
+  ICON_DRAWERS.forEach((draw, column) => {
+    draw(ctx, cellSize);
+    atlasCtx.drawImage(cell, column * cellSize, 0);
+  });
+  return atlas;
 };
