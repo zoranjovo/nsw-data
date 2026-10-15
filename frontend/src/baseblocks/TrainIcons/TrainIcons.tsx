@@ -16,12 +16,7 @@ import {
   TRAIN_MODELS_LAYER_ID,
   TRAIN_POSITIONS_LAYER_ID,
 } from "../trainMapLayers";
-import {
-  createTrainModelsLayer,
-  TRAIN_MODELS_ON_MAP_SETTINGS,
-  type TrainModelInstance,
-  type TrainModelsLayer,
-} from "./trainModelsLayer";
+import type { TrainModelInstance, TrainModelsLayer } from "./trainModelsLayer";
 import { buildTrainPositionFeatures, trainPositionFeaturesKey } from "./trainPositionFeatures";
 import {
   addTrainPositionsLayer,
@@ -255,24 +250,35 @@ export const TrainIcons = () => {
     if (!map || !trainModelsOnMap) return;
     if (isMapRemoved(map)) return;
 
-    const modelsLayer = createTrainModelsLayer(map);
-    modelsLayerRef.current = modelsLayer;
+    let cancelled = false;
+    let modelsLayer: TrainModelsLayer | null = null;
+    let addLayer: (() => void) | null = null;
 
-    const addLayer = () => {
-      if (isMapRemoved(map)) return;
-      if (!map.getLayer(TRAIN_MODELS_LAYER_ID)) map.addLayer(modelsLayer.layer);
-      hideTrainIconsFromZoom(map, TRAIN_MODELS_ON_MAP_SETTINGS.minZoom);
-      syncTrainOverlayLayerOrder(map);
-      syncPositionsData();
-    };
-    addLayer();
-    map.on("style.load", addLayer);
+    import("./trainModelsLayer")
+      .then(({ createTrainModelsLayer, TRAIN_MODELS_ON_MAP_SETTINGS }) => {
+        if (cancelled || isMapRemoved(map)) return;
+        const layer = createTrainModelsLayer(map);
+        modelsLayer = layer;
+        modelsLayerRef.current = layer;
+
+        addLayer = () => {
+          if (isMapRemoved(map)) return;
+          if (!map.getLayer(TRAIN_MODELS_LAYER_ID)) map.addLayer(layer.layer);
+          hideTrainIconsFromZoom(map, TRAIN_MODELS_ON_MAP_SETTINGS.minZoom);
+          syncTrainOverlayLayerOrder(map);
+          syncPositionsData();
+        };
+        addLayer();
+        map.on("style.load", addLayer);
+      })
+      .catch(() => {});
 
     return () => {
+      cancelled = true;
       modelsLayerRef.current = null;
-      modelsLayer.destroy();
+      modelsLayer?.destroy();
       if (isMapRemoved(map)) return;
-      map.off("style.load", addLayer);
+      if (addLayer) map.off("style.load", addLayer);
       if (map.getLayer(TRAIN_MODELS_LAYER_ID)) map.removeLayer(TRAIN_MODELS_LAYER_ID);
       hideTrainIconsFromZoom(map, null);
     };

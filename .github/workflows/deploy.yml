@@ -49,7 +49,7 @@ jobs:
       - name: 🔨 Build frontend
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
-          VITE_TRAIN_MODELS_URL: ${{ secrets.VITE_TRAIN_MODELS_URL }}
+          VITE_CDN_URL: ${{ secrets.VITE_CDN_URL }}
           VITE_BUILD_HASH: ${{ env.SHORT_SHA }}
         run: cd frontend && pnpm run build
 

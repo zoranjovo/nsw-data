@@ -24,6 +24,17 @@ const NSW_BOUNDS: [[number, number], [number, number]] = [
 ];
 const MAX_ZOOM = 20;
 const MIN_ZOOM = 7;
+const MAX_PIXEL_RATIO = 2;
+const SYMBOL_FADE_MS = 300;
+const SYMBOL_FADE_MIN_ZOOM = 14;
+
+// Fading symbols keeps the map redrawing after every train update, which costs more than it saves
+// when zoomed out; zoomed in, the fade throttles label placement, which is the bigger cost
+const syncSymbolFade = (map: maplibregl.Map) => {
+  const internal = map as unknown as { _fadeDuration?: number };
+  if (typeof internal._fadeDuration !== "number") return;
+  internal._fadeDuration = map.getZoom() < SYMBOL_FADE_MIN_ZOOM ? 0 : SYMBOL_FADE_MS;
+};
 
 export const MapView = () => {
   const { mapReady, setMapReady } = useAppContext();
@@ -73,9 +84,12 @@ export const MapView = () => {
       pitch,
       maxPitch,
       attributionControl: { compact: true },
+      fadeDuration: zoom < SYMBOL_FADE_MIN_ZOOM ? 0 : SYMBOL_FADE_MS,
+      pixelRatio: Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO),
     });
 
     mapInstance.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
+    mapInstance.on("zoomend", () => syncSymbolFade(mapInstance));
 
     const collapseAttribution = () => {
       const attrib = mapInstance.getContainer().querySelector(".maplibregl-ctrl-attrib");

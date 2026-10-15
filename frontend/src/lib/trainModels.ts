@@ -1,10 +1,5 @@
 import type { Group } from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-
-const TRAIN_MODELS_URL = (import.meta.env.VITE_TRAIN_MODELS_URL || "/train-models").replace(
-  /\/+$/,
-  ""
-);
+import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export const FALLBACK_TRAIN_MODEL_ID = "h-set";
 
@@ -24,20 +19,31 @@ export type TrainModel = {
   scene: Group;
 };
 
-const loader = new GLTFLoader();
+let loader: Promise<GLTFLoader> | null = null;
+const getLoader = (): Promise<GLTFLoader> => {
+  loader ??= Promise.all([
+    import("three/addons/loaders/GLTFLoader.js"),
+    import("three/addons/libs/meshopt_decoder.module.js"),
+  ]).then(([{ GLTFLoader }, { MeshoptDecoder }]) =>
+    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
+  );
+  return loader;
+};
 const modelsById = new Map<string, Promise<Group>>();
 
 export const trainModelIdFor = (fleetCode: string | null | undefined): string =>
   MODEL_ID_BY_FLEET_CODE[fleetCode?.trim().toUpperCase() ?? ""] ?? FALLBACK_TRAIN_MODEL_ID;
 
 export const trainModelUrl = (id: string, variant: TrainModelVariant = "driving"): string =>
-  `${TRAIN_MODELS_URL}/${id}-${variant}.glb`;
+  `${(import.meta.env.VITE_CDN_URL ?? "").replace(/\/+$/, "")}/train-models/${id}-${variant}.glb`;
 
 const loadModel = (id: string, variant: TrainModelVariant): Promise<Group> => {
   const url = trainModelUrl(id, variant);
   let model = modelsById.get(url);
   if (!model) {
-    model = loader.loadAsync(url).then((gltf) => gltf.scene);
+    model = getLoader()
+      .then((gltfLoader) => gltfLoader.loadAsync(url))
+      .then((gltf) => gltf.scene);
     modelsById.set(url, model);
   }
   return model;

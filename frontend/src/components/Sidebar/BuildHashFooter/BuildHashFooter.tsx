@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { getHealth } from "@/client-api/health";
 import { SidebarFooter } from "@/components/ui/sidebar";
+import { useFrameStats } from "@/hooks/use-frame-stats";
 import styles from "./BuildHashFooter.module.css";
 
 export const BuildHashFooter = () => {
   const frontendHash = (import.meta.env.VITE_BUILD_HASH as string | undefined) ?? "local";
   const [backendHash, setBackendHash] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
+  const frameStats = useFrameStats();
 
   const handleClick = async () => {
     if (backendHash !== null || fetching) return;
@@ -23,6 +25,14 @@ export const BuildHashFooter = () => {
 
   return (
     <SidebarFooter className={styles.footer}>
+      <p className={styles.frameStats}>
+        <span className={styles.buildHashValue}>{frameStats ? frameStats.fps : "–"}</span>
+        &nbsp;fps&nbsp;·&nbsp;
+        <span className={styles.buildHashValue}>
+          {frameStats ? frameStats.frameMs.toFixed(1) : "–"}
+        </span>
+        &nbsp;ms/frame
+      </p>
       <button type="button" className={styles.buildHashButton} onClick={handleClick}>
         {fetching || backendHash !== null ? (
           <p className={styles.buildHash}>

@@ -1,18 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const loadAsync = vi.hoisted(() => vi.fn());
 
 vi.mock("three/addons/loaders/GLTFLoader.js", () => ({
   GLTFLoader: class {
     loadAsync = loadAsync;
+    setMeshoptDecoder() {
+      return this;
+    }
   },
 }));
+
+vi.mock("three/addons/libs/meshopt_decoder.module.js", () => ({ MeshoptDecoder: {} }));
 
 const sceneFor = (url: string) => ({ scene: { name: url } });
 
 beforeEach(() => {
   vi.resetModules();
+  vi.stubEnv("VITE_CDN_URL", "https://cdn.example.com/");
   loadAsync.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("trainModelIdFor", () => {
@@ -34,7 +44,9 @@ describe("loadTrainModel", () => {
     const model = await loadTrainModel("D");
 
     expect(model.id).toBe("d-set");
-    expect(loadAsync).toHaveBeenCalledWith("/train-models/d-set-driving.glb");
+    expect(loadAsync).toHaveBeenCalledWith(
+      "https://cdn.example.com/train-models/d-set-driving.glb"
+    );
   });
 
   it("falls back to the H set when the fleet's model is missing", async () => {
@@ -47,7 +59,7 @@ describe("loadTrainModel", () => {
     const model = await loadTrainModel("A");
 
     expect(model.id).toBe("h-set");
-    expect(model.scene.name).toBe("/train-models/h-set-driving.glb");
+    expect(model.scene.name).toBe("https://cdn.example.com/train-models/h-set-driving.glb");
   });
 
   it("loads the lighter variant when asked", async () => {
@@ -56,7 +68,9 @@ describe("loadTrainModel", () => {
 
     await loadTrainModel("D", "driving-lod");
 
-    expect(loadAsync).toHaveBeenCalledWith("/train-models/d-set-driving-lod.glb");
+    expect(loadAsync).toHaveBeenCalledWith(
+      "https://cdn.example.com/train-models/d-set-driving-lod.glb"
+    );
   });
 
   it("only downloads each model once", async () => {
