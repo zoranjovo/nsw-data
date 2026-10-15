@@ -1,3 +1,4 @@
+import type { TrainDelayLevel } from "@/lib/trainDelay";
 import type { TrainDestination } from "@/lib/trainDestination";
 import type { TrainPosition } from "@/types/train/train";
 import type { TrackPlacement } from "./trainConsist";
@@ -13,6 +14,8 @@ export type TrainMarker = {
   bearing: number | null;
   isStale: boolean;
   isNearView: boolean;
+  lineColor: [number, number, number];
+  delayLevel: TrainDelayLevel;
   carCount: number | null;
   track: TrackPlacement | null;
 };

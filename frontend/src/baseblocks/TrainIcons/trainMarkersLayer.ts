@@ -4,42 +4,73 @@ import {
   MercatorCoordinate,
 } from "maplibre-gl";
 import { TRAIN_POSITIONS_LAYER_ID } from "../trainMapLayers";
-import { drawTrainIconAtlas, TRAIN_ICON_COLUMN_COUNT, TRAIN_ICON_COLUMNS } from "./trainIconImages";
+import {
+  drawTrainIconAtlas,
+  TRAIN_ICON_COLUMN_COUNT,
+  TRAIN_ICON_COLUMNS,
+  TRAIN_ICON_ROW_COUNT,
+  TRAIN_ICON_ROWS,
+} from "./trainIconImages";
 import { type GetTrainMarkers, type TrainMarker, trainIconSizePx } from "./trainMarkers";
 
 const ATLAS_CELL_PX = 128;
+const ATLAS_GUTTER_PX = 16;
 const STALE_OPACITY = 0.4;
-const FLOATS_PER_INSTANCE = 7;
+const FLOATS_PER_INSTANCE = 11;
 const WORLD_SIZE_AT_ZOOM_0 = 512;
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_corner;
 in vec3 a_position;
 in vec2 a_rotation;
-in vec2 a_style;
+in vec3 a_style;
+in vec3 a_tint;
 uniform mat4 u_matrix;
 uniform float u_size;
-uniform float u_columns;
-out vec2 v_uv;
-out float v_opacity;
+out vec2 v_cell;
+flat out float v_column;
+flat out float v_opacity;
+flat out float v_delay;
+flat out vec3 v_tint;
 void main() {
   vec2 corner = a_corner * u_size;
   float s = a_rotation.x;
   float c = a_rotation.y;
   vec2 east_north = vec2(corner.x * c + corner.y * s, -corner.x * s + corner.y * c);
   gl_Position = u_matrix * vec4(a_position.xy + vec2(east_north.x, -east_north.y), a_position.z, 1.0);
-  v_uv = vec2((a_style.x + a_corner.x + 0.5) / u_columns, 0.5 - a_corner.y);
+  v_cell = vec2(a_corner.x + 0.5, 0.5 - a_corner.y);
+  v_column = a_style.x;
   v_opacity = a_style.y;
+  v_delay = a_style.z;
+  v_tint = a_tint;
 }`;
 
 const FRAGMENT_SHADER = `#version 300 es
 precision mediump float;
-in vec2 v_uv;
-in float v_opacity;
+in vec2 v_cell;
+flat in float v_column;
+flat in float v_opacity;
+flat in float v_delay;
+flat in vec3 v_tint;
 uniform sampler2D u_atlas;
+uniform vec2 u_grid;
+uniform float u_inset;
 out vec4 fragColor;
+vec4 layer(float row) {
+  vec2 cell = vec2(v_column, row) + u_inset + v_cell * (1.0 - 2.0 * u_inset);
+  return texture(u_atlas, cell / u_grid);
+}
 void main() {
-  fragColor = texture(u_atlas, v_uv) * v_opacity;
+  vec4 body = layer(${TRAIN_ICON_ROWS.body}.0);
+  body.rgb *= v_tint;
+  vec4 color = body + layer(${TRAIN_ICON_ROWS.under}.0) * (1.0 - body.a);
+  vec4 over = layer(${TRAIN_ICON_ROWS.over}.0);
+  color = over + color * (1.0 - over.a);
+  if (v_delay > 0.5) {
+    vec4 delay = layer(${TRAIN_ICON_ROWS.firstDelay - 1}.0 + v_delay);
+    color = delay + color * (1.0 - delay.a);
+  }
+  fragColor = color * v_opacity;
 }`;
 
 type GlResources = {
@@ -51,7 +82,8 @@ type GlResources = {
   uniforms: {
     matrix: WebGLUniformLocation | null;
     size: WebGLUniformLocation | null;
-    columns: WebGLUniformLocation | null;
+    grid: WebGLUniformLocation | null;
+    inset: WebGLUniformLocation | null;
     atlas: WebGLUniformLocation | null;
   };
 };
@@ -105,7 +137,8 @@ const createResources = (gl: WebGL2RenderingContext): GlResources => {
   const instanceAttributes: [string, number, number][] = [
     ["a_position", 3, 0],
     ["a_rotation", 2, 3],
-    ["a_style", 2, 5],
+    ["a_style", 3, 5],
+    ["a_tint", 3, 8],
   ];
   for (const [name, size, offset] of instanceAttributes) {
     const location = gl.getAttribLocation(program, name);
@@ -124,7 +157,7 @@ const createResources = (gl: WebGL2RenderingContext): GlResources => {
     gl.RGBA,
     gl.RGBA,
     gl.UNSIGNED_BYTE,
-    drawTrainIconAtlas(ATLAS_CELL_PX)
+    drawTrainIconAtlas(ATLAS_CELL_PX, ATLAS_GUTTER_PX)
   );
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
   gl.generateMipmap(gl.TEXTURE_2D);
@@ -143,7 +176,8 @@ const createResources = (gl: WebGL2RenderingContext): GlResources => {
     uniforms: {
       matrix: gl.getUniformLocation(program, "u_matrix"),
       size: gl.getUniformLocation(program, "u_size"),
-      columns: gl.getUniformLocation(program, "u_columns"),
+      grid: gl.getUniformLocation(program, "u_grid"),
+      inset: gl.getUniformLocation(program, "u_inset"),
       atlas: gl.getUniformLocation(program, "u_atlas"),
     },
   };
@@ -180,6 +214,8 @@ export const createTrainMarkersLayer = (
     instanceData[offset + 4] = Math.cos(bearing);
     instanceData[offset + 5] = iconColumn(marker);
     instanceData[offset + 6] = marker.isStale ? STALE_OPACITY : 1;
+    instanceData[offset + 7] = marker.delayLevel;
+    instanceData.set(marker.lineColor, offset + 8);
   };
 
   const layer: CustomLayerInterface = {
@@ -231,7 +267,11 @@ export const createTrainMarkersLayer = (
         resources.uniforms.size,
         trainIconSizePx(zoom) / (WORLD_SIZE_AT_ZOOM_0 * 2 ** zoom)
       );
-      gl.uniform1f(resources.uniforms.columns, TRAIN_ICON_COLUMN_COUNT);
+      gl.uniform2f(resources.uniforms.grid, TRAIN_ICON_COLUMN_COUNT, TRAIN_ICON_ROW_COUNT);
+      gl.uniform1f(
+        resources.uniforms.inset,
+        ATLAS_GUTTER_PX / (ATLAS_CELL_PX + ATLAS_GUTTER_PX * 2)
+      );
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, resources.atlas);
       gl.uniform1i(resources.uniforms.atlas, 0);

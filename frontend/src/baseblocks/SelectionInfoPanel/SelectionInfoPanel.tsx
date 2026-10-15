@@ -13,7 +13,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { describeTrainDestination } from "@/lib/trainDestination";
 import { describeTrainFleet } from "@/lib/trainFleet";
 import { isSameTrain } from "@/lib/trainIdentity";
-import { resolveTrainLineColor } from "@/lib/trainRouteColors";
+import { createRouteColorLookup } from "@/lib/trainRouteColors";
 import { createRouteShortNameLookup } from "@/lib/trainRouteId";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainPosition } from "@/types/train/train";
@@ -246,16 +246,11 @@ export const SelectionInfoPanel = () => {
     return getRouteShortName(displayedTrain.routeId) ?? displayedTrain.routeId ?? null;
   }, [displayedTrain, getRouteShortName]);
 
-  const routeColor = useMemo(() => {
-    if (!displayedTrain) return "#6b7280";
-    const track =
-      trainStatic.tracks.features.find((f) => f.properties.route_id === displayedTrain.routeId) ??
-      trainStatic.tracks.features.find((f) => f.properties.route_short_name === routeShortName);
-    return resolveTrainLineColor(
-      track?.properties.route_short_name ?? routeShortName ?? "",
-      track?.properties.route_color ?? ""
-    );
-  }, [displayedTrain, routeShortName, trainStatic.tracks.features]);
+  const getRouteColor = useMemo(
+    () => createRouteColorLookup(trainStatic.tracks.features),
+    [trainStatic.tracks.features]
+  );
+  const routeColor = displayedTrain ? getRouteColor(displayedTrain.routeId) : "#6b7280";
 
   useEffect(() => {
     const id = setInterval(() => setNowEpochSeconds(Math.floor(Date.now() / 1000)), 1000);

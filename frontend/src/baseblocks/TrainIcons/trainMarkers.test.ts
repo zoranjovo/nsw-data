@@ -13,6 +13,8 @@ const marker = (key: string, longitude: number, latitude: number): TrainMarker =
   bearing: null,
   isStale: false,
   isNearView: true,
+  lineColor: [1, 1, 1],
+  delayLevel: 0,
   carCount: null,
   track: null,
 });

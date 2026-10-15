@@ -2,10 +2,12 @@ import maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
 import { isTimetableStale } from "@/lib/timetableRefresh";
+import { currentTrainDelaySeconds, trainDelayLevel } from "@/lib/trainDelay";
 import { describeTrainDestination } from "@/lib/trainDestination";
 import { isSameTrain, trainKey } from "@/lib/trainIdentity";
 import { createTrainMotionCache } from "@/lib/trainMotionCache";
 import { sampleTrainMotionAt, trainMotionDistance } from "@/lib/trainPositionInterpolator";
+import { createRouteColorLookup, hexToRgb } from "@/lib/trainRouteColors";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import { isTimetableData, type TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
@@ -58,6 +60,7 @@ export const TrainIcons = () => {
   const timetablesByTripIdRef = useRef<Map<string, TimetableData>>(timetables);
   const tripUpdatesFetchedAtRef = useRef(trainRealtime.tripUpdates.fetchedAt);
   const tracksRef = useRef<TrainTracksResponse>(trainStatic.tracks);
+  const routeColorRef = useRef(createRouteColorLookup(trainStatic.tracks.features));
   const motionCacheRef = useRef(createTrainMotionCache());
   const selectedItemRef = useRef(selectedItem);
   const interpolatedRef = useRef(interpolatedTrainMovement);
@@ -120,6 +123,7 @@ export const TrainIcons = () => {
 
   const rebuildMarkers = useCallback(() => {
     const selectedTrain = getSelectedTrain();
+    const nowEpochSeconds = Date.now() / 1000;
     markersRef.current = positionsRef.current.map((position): TrainMarker => {
       const timetable = timetablesByTripIdRef.current.get(position.tripId);
       return {
@@ -137,6 +141,10 @@ export const TrainIcons = () => {
         bearing: position.bearing ?? null,
         isStale: false,
         isNearView: true,
+        lineColor: hexToRgb(routeColorRef.current(position.routeId)),
+        delayLevel: trainDelayLevel(
+          timetable ? currentTrainDelaySeconds(timetable, nowEpochSeconds) : null
+        ),
         carCount: position.carCount ?? null,
         track: null,
       };
@@ -202,9 +210,9 @@ export const TrainIcons = () => {
 
   useEffect(() => {
     tracksRef.current = trainStatic.tracks;
-    lastSampledAtRef.current = Number.NEGATIVE_INFINITY;
-    repaint();
-  }, [trainStatic.tracks, repaint]);
+    routeColorRef.current = createRouteColorLookup(trainStatic.tracks.features);
+    rebuildMarkers();
+  }, [trainStatic.tracks, rebuildMarkers]);
 
   useEffect(() => {
     interpolatedRef.current = interpolatedTrainMovement;
