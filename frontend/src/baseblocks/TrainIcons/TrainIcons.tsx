@@ -5,6 +5,7 @@ import { isTimetableStale } from "@/lib/timetableRefresh";
 import { describeTrainDestination } from "@/lib/trainDestination";
 import { isSameTrain, trainKey } from "@/lib/trainIdentity";
 import { createTrainMotionCache } from "@/lib/trainMotionCache";
+import { sampleTrainMotionAt, trainMotionDistance } from "@/lib/trainPositionInterpolator";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import { isTimetableData, type TimetableData } from "@/types/train/timetable";
 import type { TrainTracksResponse } from "@/types/train/tracks";
@@ -16,6 +17,7 @@ import {
   TRAIN_MODELS_LAYER_ID,
   TRAIN_POSITIONS_LAYER_ID,
 } from "../trainMapLayers";
+import { consistLayout, placeAlongTrain } from "./trainConsist";
 import { pickTrainMarker, type TrainMarker, trainIconSizePx } from "./trainMarkers";
 import { createTrainMarkersLayer, type TrainMarkersLayer } from "./trainMarkersLayer";
 import type { TrainModelsLayer } from "./trainModelsLayer";
@@ -29,6 +31,7 @@ const STALE_POSITION_SECONDS = 10 * 60;
 const SAMPLE_REUSE_MS = 4;
 const MIN_PICK_RADIUS_PX = 10;
 const MODEL_PICK_HALF_LENGTH_M = 11;
+const NOMINAL_CAR_LENGTH_M = 20.4;
 // Interpolated positions can sit a few km from the raw feed position, so keep a wide margin
 const NEAR_VIEW_MARGIN_DEGREES = 0.05;
 
@@ -131,6 +134,8 @@ export const TrainIcons = () => {
         bearing: position.bearing ?? null,
         isStale: false,
         isNearView: true,
+        carCount: position.carCount ?? null,
+        track: null,
       };
     });
     lastSampledAtRef.current = Number.NEGATIVE_INFINITY;
@@ -160,18 +165,25 @@ export const TrainIcons = () => {
       marker.longitude = position.longitude;
       marker.latitude = position.latitude;
       marker.bearing = position.bearing ?? null;
+      marker.track = null;
       if (!interpolatedRef.current) continue;
 
-      const sample = motionCacheRef.current.sample(
+      const motion = motionCacheRef.current.motion(
         position,
         timetablesByTripIdRef.current.get(position.tripId),
-        tracksRef.current,
-        nowEpochSeconds
+        tracksRef.current
       );
-      if (sample == null) {
+      if (motion == null) {
         marker.bearing = null;
         continue;
       }
+      const trackLength = motion.path.dists[motion.path.dists.length - 1];
+      const distanceMeters = Math.min(
+        trackLength,
+        Math.max(0, trainMotionDistance(motion, nowEpochSeconds))
+      );
+      const sample = sampleTrainMotionAt(motion, distanceMeters);
+      marker.track = { motion, distanceMeters };
       marker.longitude = sample.longitude;
       marker.latitude = sample.latitude;
       marker.bearing = sample.bearing;
@@ -216,13 +228,23 @@ export const TrainIcons = () => {
 
     const pickAt = (point: maplibregl.Point): TrainMarker | null => {
       const zoom = map.getZoom();
-      let radius = Math.max(MIN_PICK_RADIUS_PX, trainIconSizePx(zoom) / 2);
-      if (modelsMinZoomRef.current != null && zoom >= modelsMinZoomRef.current) {
-        radius = Math.max(radius, MODEL_PICK_HALF_LENGTH_M / metersPerPixel(map));
+      const radius = Math.max(MIN_PICK_RADIUS_PX, trainIconSizePx(zoom) / 2);
+      const showingModels = modelsMinZoomRef.current != null && zoom >= modelsMinZoomRef.current;
+      if (!showingModels) {
+        return pickTrainMarker(getMarkers(), point, radius, (marker) => [
+          map.project([marker.longitude, marker.latitude]),
+        ]);
       }
-      return pickTrainMarker(getMarkers(), point, radius, (longitude, latitude) =>
-        map.project([longitude, latitude])
-      );
+
+      const carRadius = Math.max(radius, MODEL_PICK_HALF_LENGTH_M / metersPerPixel(map));
+      return pickTrainMarker(getMarkers(), point, carRadius, (marker) => {
+        const carCount = consistLayout(marker.fleetCode, marker.carCount).length;
+        return Array.from({ length: carCount }, (_, index) => {
+          const offset = ((carCount - 1) / 2 - index) * NOMINAL_CAR_LENGTH_M;
+          const car = placeAlongTrain(marker, marker.track, offset);
+          return map.project([car.longitude, car.latitude]);
+        });
+      });
     };
 
     let hovering = false;

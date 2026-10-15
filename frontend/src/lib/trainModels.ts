@@ -12,7 +12,7 @@ const MODEL_ID_BY_FLEET_CODE: Record<string, string> = {
   T: "t-set",
 };
 
-export type TrainModelVariant = "driving" | "driving-lod";
+export type TrainModelVariant = "driving" | "driving-lod" | "intermediate" | "intermediate-lod";
 
 export type TrainModel = {
   id: string;

@@ -1,5 +1,6 @@
 import type { TrainDestination } from "@/lib/trainDestination";
 import type { TrainPosition } from "@/types/train/train";
+import type { TrackPlacement } from "./trainConsist";
 
 export type TrainMarker = {
   key: string;
@@ -12,6 +13,8 @@ export type TrainMarker = {
   bearing: number | null;
   isStale: boolean;
   isNearView: boolean;
+  carCount: number | null;
+  track: TrackPlacement | null;
 };
 
 export type GetTrainMarkers = () => readonly TrainMarker[];
@@ -42,23 +45,26 @@ export const trainIconSizePx = (zoom: number): number => {
   return last[1] * TRAIN_ICON_BASE_SIZE_PX;
 };
 
+type ScreenPoint = { x: number; y: number };
+
 export const pickTrainMarker = (
   markers: readonly TrainMarker[],
-  point: { x: number; y: number },
+  point: ScreenPoint,
   radiusPx: number,
-  project: (longitude: number, latitude: number) => { x: number; y: number }
+  screenPoints: (marker: TrainMarker) => Iterable<ScreenPoint>
 ): TrainMarker | null => {
   let best: TrainMarker | null = null;
   let bestDistance = radiusPx * radiusPx;
   for (const marker of markers) {
     if (!marker.isNearView) continue;
-    const screen = project(marker.longitude, marker.latitude);
-    const dx = screen.x - point.x;
-    const dy = screen.y - point.y;
-    const distance = dx * dx + dy * dy;
-    if (distance <= bestDistance) {
-      best = marker;
-      bestDistance = distance;
+    for (const screen of screenPoints(marker)) {
+      const dx = screen.x - point.x;
+      const dy = screen.y - point.y;
+      const distance = dx * dx + dy * dy;
+      if (distance <= bestDistance) {
+        best = marker;
+        bestDistance = distance;
+      }
     }
   }
   return best;

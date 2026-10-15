@@ -16,6 +16,11 @@ type CacheEntry = {
 };
 
 export type TrainMotionCache = {
+  motion(
+    position: TrainPosition,
+    timetable: TimetableData | undefined,
+    tracks: TrainTracksResponse
+  ): TrainMotion | null;
   sample(
     position: TrainPosition,
     timetable: TimetableData | undefined,
@@ -28,21 +33,28 @@ export type TrainMotionCache = {
 export const createTrainMotionCache = (): TrainMotionCache => {
   const entries = new Map<string, CacheEntry>();
 
-  return {
-    sample(position, timetable, tracks, nowEpochSeconds) {
-      if (!timetable) return null;
+  const motion: TrainMotionCache["motion"] = (position, timetable, tracks) => {
+    if (!timetable) return null;
 
-      const key = trainKey(position);
-      let entry = entries.get(key);
-      if (entry == null || entry.timetable !== timetable || entry.tracks !== tracks) {
-        entry = {
-          timetable,
-          tracks,
-          motion: buildTrainMotion(timetable, tracks, position.routeId || timetable.routeId),
-        };
-        entries.set(key, entry);
-      }
-      return entry.motion != null ? sampleTrainMotion(entry.motion, nowEpochSeconds) : null;
+    const key = trainKey(position);
+    let entry = entries.get(key);
+    if (entry == null || entry.timetable !== timetable || entry.tracks !== tracks) {
+      entry = {
+        timetable,
+        tracks,
+        motion: buildTrainMotion(timetable, tracks, position.routeId || timetable.routeId),
+      };
+      entries.set(key, entry);
+    }
+    return entry.motion;
+  };
+
+  return {
+    motion,
+
+    sample(position, timetable, tracks, nowEpochSeconds) {
+      const trainMotion = motion(position, timetable, tracks);
+      return trainMotion != null ? sampleTrainMotion(trainMotion, nowEpochSeconds) : null;
     },
 
     retainOnly(positions) {

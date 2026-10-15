@@ -282,32 +282,32 @@ const firstIndexAtOrAfter = (values: Float64Array, target: number): number => {
 
 const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
 
-export const sampleTrainMotion = (
+export const trainMotionDistance = (motion: TrainMotion, nowEpochSeconds: number): number => {
+  const { times, distances } = motion;
+  if (times.length <= 1) return distances[0];
+  const next = Math.min(times.length - 1, Math.max(1, firstIndexAtOrAfter(times, nowEpochSeconds)));
+  const duration = times[next] - times[next - 1];
+  const progress = clamp01(duration > 0 ? (nowEpochSeconds - times[next - 1]) / duration : 1);
+  return distances[next - 1] + (distances[next] - distances[next - 1]) * progress;
+};
+
+// Past either end of the track the position carries on in a straight line, so trailing cars
+// of a train sitting at a terminus still line up behind it
+export const sampleTrainMotionAt = (
   motion: TrainMotion,
-  nowEpochSeconds: number
+  distanceMeters: number
 ): InterpolatedTrainPosition => {
-  const { path, times, distances, direction } = motion;
-
-  let distanceMeters = distances[0];
-  if (times.length > 1) {
-    const next = Math.min(
-      times.length - 1,
-      Math.max(1, firstIndexAtOrAfter(times, nowEpochSeconds))
-    );
-    const duration = times[next] - times[next - 1];
-    const progress = clamp01(duration > 0 ? (nowEpochSeconds - times[next - 1]) / duration : 1);
-    distanceMeters = distances[next - 1] + (distances[next] - distances[next - 1]) * progress;
-  }
-
+  const { path, direction } = motion;
+  const lastIndex = path.lons.length - 1;
   const segmentEnd = Math.min(
-    path.lons.length - 1,
+    lastIndex,
     Math.max(1, firstIndexAtOrAfter(path.dists, distanceMeters))
   );
   const segmentStart = segmentEnd - 1;
   const segmentMeters = path.dists[segmentEnd] - path.dists[segmentStart];
-  const along = clamp01(
-    segmentMeters > 0 ? (distanceMeters - path.dists[segmentStart]) / segmentMeters : 0
-  );
+  let along = segmentMeters > 0 ? (distanceMeters - path.dists[segmentStart]) / segmentMeters : 0;
+  if (segmentStart > 0) along = Math.max(along, 0);
+  if (segmentEnd < lastIndex) along = Math.min(along, 1);
   const bearing = computeBearing(
     path.lats[segmentStart],
     path.lons[segmentStart],
@@ -320,4 +320,13 @@ export const sampleTrainMotion = (
     longitude: path.lons[segmentStart] + (path.lons[segmentEnd] - path.lons[segmentStart]) * along,
     bearing: direction < 0 ? (bearing + 180) % 360 : bearing,
   };
+};
+
+export const sampleTrainMotion = (
+  motion: TrainMotion,
+  nowEpochSeconds: number
+): InterpolatedTrainPosition => {
+  const distanceMeters = trainMotionDistance(motion, nowEpochSeconds);
+  const lastDistance = motion.path.dists[motion.path.dists.length - 1];
+  return sampleTrainMotionAt(motion, Math.min(lastDistance, Math.max(0, distanceMeters)));
 };
