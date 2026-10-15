@@ -7,19 +7,18 @@ import {
   Box3,
   DirectionalLight,
   type Group,
+  HemisphereLight,
+  type Material,
   MathUtils,
   Matrix4,
   type Mesh,
+  MeshLambertMaterial,
   type MeshStandardMaterial,
-  NeutralToneMapping,
   type Object3D,
   PerspectiveCamera,
-  PMREMGenerator,
   Scene,
-  type Texture,
   WebGLRenderer,
 } from "three";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { loadTrainModel } from "@/lib/trainModels";
 import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
 import {
@@ -41,7 +40,9 @@ export const TRAIN_MODELS_ON_MAP_SETTINGS = {
   minZoom: 16,
   viewportPadding: 0.25,
   displayTextureWidth: 512,
-  exposure: 1.1,
+  skyLight: 2.8,
+  groundShade: 0x808080,
+  sunLight: 1.4,
 };
 
 type CarModel = {
@@ -79,13 +80,44 @@ export type TrainModelsLayer = {
 
 const MODEL_UP_TO_MAP_UP = new Matrix4().makeRotationX(Math.PI / 2);
 
+const matteMaterials = new Map<Material, MeshLambertMaterial>();
+
+const toMatte = (material: Material): MeshLambertMaterial => {
+  let matte = matteMaterials.get(material);
+  if (!matte) {
+    const source = material as MeshStandardMaterial;
+    matte = new MeshLambertMaterial({
+      color: source.color,
+      map: source.map,
+      emissive: source.emissive,
+      emissiveMap: source.emissiveMap,
+      side: source.side,
+    });
+    matteMaterials.set(material, matte);
+  }
+  return matte;
+};
+
+const withMatteMaterials = (model: Group): Group => {
+  const matte = model.clone(true);
+  const display = findDisplayMesh(matte);
+  matte.traverse((child) => {
+    const mesh = child as Mesh;
+    if (!mesh.isMesh || mesh === display) return;
+    mesh.material = Array.isArray(mesh.material)
+      ? mesh.material.map(toMatte)
+      : toMatte(mesh.material);
+  });
+  return matte;
+};
+
 const loadCarModel = async (
   fleetCode: string | null,
   variant: "driving-lod" | "intermediate-lod"
 ): Promise<CarModel> => {
   const { id, scene } = await loadTrainModel(fleetCode, variant);
   const box = new Box3().setFromObject(scene);
-  return { id, scene, extents: { front: box.max.x, rear: -box.min.x } };
+  return { id, scene: withMatteMaterials(scene), extents: { front: box.max.x, rear: -box.min.x } };
 };
 
 const consistModelsByFleet = new Map<string, Promise<ConsistModels>>();
@@ -111,9 +143,15 @@ export const createTrainModelsLayer = (
 ): TrainModelsLayer => {
   const scene = new Scene();
   const camera = new PerspectiveCamera();
-  const sun = new DirectionalLight(0xffffff, 1.2);
-  sun.position.set(0.4, 1, 0.6);
-  scene.add(sun);
+  const sun = new DirectionalLight(0xffffff, TRAIN_MODELS_ON_MAP_SETTINGS.sunLight);
+  sun.position.set(0.5, -0.6, 1);
+  const sky = new HemisphereLight(
+    0xffffff,
+    TRAIN_MODELS_ON_MAP_SETTINGS.groundShade,
+    TRAIN_MODELS_ON_MAP_SETTINGS.skyLight
+  );
+  sky.position.set(0, 0, 1);
+  scene.add(sky, sun);
 
   const trains = new Map<string, PlacedTrain>();
   const displayMaterials = new Map<string, DestinationMaterial>();
@@ -121,7 +159,6 @@ export const createTrainModelsLayer = (
   const scale = new Matrix4();
   const heading = new Matrix4();
   let renderer: WebGLRenderer | null = null;
-  let environment: Texture | null = null;
   let destroyed = false;
 
   const applyDestination = (train: PlacedTrain, car: PlacedCar) => {
@@ -266,14 +303,6 @@ export const createTrainModelsLayer = (
     onAdd: (_map, gl) => {
       renderer = new WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
       renderer.autoClear = false;
-      renderer.toneMapping = NeutralToneMapping;
-      renderer.toneMappingExposure = TRAIN_MODELS_ON_MAP_SETTINGS.exposure;
-      renderer.resetState();
-      const pmrem = new PMREMGenerator(renderer);
-      environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-      pmrem.dispose();
-      scene.environment = environment;
-      renderer.resetState();
     },
     render: (gl, options) => {
       if (!renderer) return;
@@ -293,8 +322,6 @@ export const createTrainModelsLayer = (
       renderer.render(scene, camera);
     },
     onRemove: () => {
-      environment?.dispose();
-      environment = null;
       renderer?.dispose();
       renderer = null;
     },
