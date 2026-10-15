@@ -14,4 +14,6 @@ export type TrainPosition = {
   bearing?: number | null;
   speed?: number | null;
   currentStopSequence?: number | null;
+  fleetCode?: string | null;
+  carCount?: number | null;
 };

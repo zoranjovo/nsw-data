@@ -57,13 +57,15 @@ export const saveMapState = (patch: Partial<MapStoredState>): void => {
 
 export type TrainMovementSettings = {
   interpolatedTrainMovement: boolean;
-  smoothInterpolatedTrainMovement: boolean;
+  smoothBackgroundMovement: boolean;
+  trainModelsOnMap: boolean;
 };
 
 const TRAIN_MOVEMENT_KEY = "train-movement-settings";
 const TRAIN_MOVEMENT_DEFAULTS: TrainMovementSettings = {
   interpolatedTrainMovement: true,
-  smoothInterpolatedTrainMovement: false,
+  smoothBackgroundMovement: true,
+  trainModelsOnMap: false,
 };
 
 export const loadTrainMovementSettings = (): TrainMovementSettings => {
@@ -76,10 +78,14 @@ export const loadTrainMovementSettings = (): TrainMovementSettings => {
         typeof parsed.interpolatedTrainMovement === "boolean"
           ? parsed.interpolatedTrainMovement
           : TRAIN_MOVEMENT_DEFAULTS.interpolatedTrainMovement,
-      smoothInterpolatedTrainMovement:
-        typeof parsed.smoothInterpolatedTrainMovement === "boolean"
-          ? parsed.smoothInterpolatedTrainMovement
-          : TRAIN_MOVEMENT_DEFAULTS.smoothInterpolatedTrainMovement,
+      smoothBackgroundMovement:
+        typeof parsed.smoothBackgroundMovement === "boolean"
+          ? parsed.smoothBackgroundMovement
+          : TRAIN_MOVEMENT_DEFAULTS.smoothBackgroundMovement,
+      trainModelsOnMap:
+        typeof parsed.trainModelsOnMap === "boolean"
+          ? parsed.trainModelsOnMap
+          : TRAIN_MOVEMENT_DEFAULTS.trainModelsOnMap,
     };
   } catch {
     return TRAIN_MOVEMENT_DEFAULTS;
@@ -92,8 +98,8 @@ export const saveTrainMovementSettings = (patch: Partial<TrainMovementSettings>)
     const next: TrainMovementSettings = {
       interpolatedTrainMovement:
         patch.interpolatedTrainMovement ?? current.interpolatedTrainMovement,
-      smoothInterpolatedTrainMovement:
-        patch.smoothInterpolatedTrainMovement ?? current.smoothInterpolatedTrainMovement,
+      smoothBackgroundMovement: patch.smoothBackgroundMovement ?? current.smoothBackgroundMovement,
+      trainModelsOnMap: patch.trainModelsOnMap ?? current.trainModelsOnMap,
     };
     window.localStorage.setItem(TRAIN_MOVEMENT_KEY, JSON.stringify(next));
   } catch {

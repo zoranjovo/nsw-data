@@ -8,6 +8,8 @@ import { SelectionInfoPanel } from "./SelectionInfoPanel";
 const mocks = vi.hoisted(() => ({
   selectedItem: null as unknown,
   setSelectedItem: vi.fn(),
+  following: false,
+  setFollowSelectedTrain: vi.fn(),
   live: null as unknown as LiveTrainData,
 }));
 
@@ -16,6 +18,8 @@ vi.mock("@/providers/AppProvider", () => ({
     ({
       selectedItem: mocks.selectedItem as SelectedItem,
       setSelectedItem: mocks.setSelectedItem,
+      followSelectedTrain: mocks.following,
+      setFollowSelectedTrain: mocks.setFollowSelectedTrain,
       trainStatic: {
         status: "ready",
         tracks: { type: "FeatureCollection", name: "train-tracks", features: [] },
@@ -27,6 +31,10 @@ vi.mock("@/providers/AppProvider", () => ({
 }));
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
+
+vi.mock("./TrainModelPreview/TrainModelPreview", () => ({
+  TrainModelPreview: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+}));
 
 vi.mock("./TripTimeline/TripTimeline", () => ({
   TripTimeline: ({ tripId }: { tripId: string }) => <div data-testid="timeline">{tripId}</div>,
@@ -47,6 +55,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   mocks.live = makeLiveTrainData();
   mocks.setSelectedItem.mockReset();
+  mocks.setFollowSelectedTrain.mockReset();
+  mocks.following = false;
   select(null);
 });
 
@@ -140,5 +150,41 @@ describe("SelectionInfoPanel", () => {
     act(() => vi.advanceTimersByTime(280));
 
     expect(screen.getByText("Raw data")).toBeTruthy();
+  });
+
+  it("shows which train type is running the service", () => {
+    select(makeTrain("a", { fleetCode: "H", carCount: 4 }));
+    renderPanel();
+
+    expect(screen.getByText("OSCar")).toBeTruthy();
+    expect(screen.getByText("H set · 4 cars")).toBeTruthy();
+  });
+
+  it("labels freight as cargo and unidentified trains as unknown", () => {
+    select(makeTrain("a", { fleetCode: "W" }));
+    const { rerender } = renderPanel();
+    expect(screen.getByText("Cargo")).toBeTruthy();
+
+    select(makeTrain("b"));
+    rerender();
+    act(() => vi.advanceTimersByTime(280));
+    expect(screen.getByText("Unknown")).toBeTruthy();
+  });
+
+  it("offers to follow the train when it is not being followed", () => {
+    select(makeTrain("a"));
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Follow train" }));
+
+    expect(mocks.setFollowSelectedTrain).toHaveBeenCalledWith(true);
+  });
+
+  it("hides the follow button while the train is being followed", () => {
+    mocks.following = true;
+    select(makeTrain("a"));
+    renderPanel();
+
+    expect(screen.queryByRole("button", { name: "Follow train" })).toBeNull();
   });
 });

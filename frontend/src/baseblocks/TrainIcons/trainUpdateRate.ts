@@ -1,7 +1,7 @@
 import type { Map as MaplibreMap } from "maplibre-gl";
 import { metersPerPixel } from "../MapView/mapViewport";
 
-const MIN_UPDATE_INTERVAL_MS = 1000 / 30;
+const MIN_UPDATE_INTERVAL_MS = 1000 / 60;
 const MAX_UPDATE_INTERVAL_MS = 1000;
 const STEPPED_UPDATE_INTERVAL_MS = 1000;
 const TARGET_PIXEL_STEP = 0.5;

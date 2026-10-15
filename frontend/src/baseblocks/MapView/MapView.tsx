@@ -7,13 +7,13 @@ import { TrainIcons } from "../TrainIcons/TrainIcons";
 import { TrainStations } from "../TrainStations/TrainStations";
 import { TrainLines } from "../TrainTracks/TrainTracks";
 import { Buildings3D } from "./Buildings3D";
+import { FollowTrainButton } from "./FollowTrainButton";
 import { MapContext } from "./MapContext";
 import styles from "./MapView.module.css";
 import { Terrain3D } from "./Terrain3D";
 import { TileLayerSelector } from "./TileLayerSelector";
-import { FLAT_MAX_PITCH, TERRAIN_MAX_PITCH } from "./terrain";
 import type { TileLayerOption } from "./tileLayers";
-import { TILE_LAYERS } from "./tileLayers";
+import { NO_SATELLITE_IMAGERY, registerSatelliteProtocol, TILE_LAYERS } from "./tileLayers";
 
 const DEBOUNCE_MS = 300;
 
@@ -22,8 +22,20 @@ const NSW_BOUNDS: [[number, number], [number, number]] = [
   [138.999, -39.505],
   [159.639, -26.157],
 ];
-const MAX_ZOOM = 20;
+const MAX_ZOOM = 22;
+const MAX_PITCH = 75;
 const MIN_ZOOM = 7;
+const MAX_PIXEL_RATIO = 2;
+const SYMBOL_FADE_MS = 300;
+const SYMBOL_FADE_MIN_ZOOM = 14;
+
+// Fading symbols keeps the map redrawing after every train update, which costs more than it saves
+// when zoomed out; zoomed in, the fade throttles label placement, which is the bigger cost
+const syncSymbolFade = (map: maplibregl.Map) => {
+  const internal = map as unknown as { _fadeDuration?: number };
+  if (typeof internal._fadeDuration !== "number") return;
+  internal._fadeDuration = map.getZoom() < SYMBOL_FADE_MIN_ZOOM ? 0 : SYMBOL_FADE_MS;
+};
 
 export const MapView = () => {
   const { mapReady, setMapReady } = useAppContext();
@@ -40,7 +52,6 @@ export const MapView = () => {
     zoom: storedState.zoom,
     bearing: storedState.bearing,
     pitch: storedState.pitch,
-    maxPitch: terrain3d ? TERRAIN_MAX_PITCH : FLAT_MAX_PITCH,
     style: selectedLayer.style,
   });
 
@@ -53,14 +64,10 @@ export const MapView = () => {
   }, [terrain3d]);
 
   useEffect(() => {
-    if (!map) return;
-    map.setMaxPitch(terrain3d ? TERRAIN_MAX_PITCH : FLAT_MAX_PITCH);
-  }, [map, terrain3d]);
-
-  useEffect(() => {
     if (!mapContainerRef.current) return;
-    const { center, zoom, bearing, pitch, maxPitch, style } = initialMapConfigRef.current;
+    const { center, zoom, bearing, pitch, style } = initialMapConfigRef.current;
 
+    registerSatelliteProtocol();
     const mapInstance = new maplibregl.Map({
       container: mapContainerRef.current,
       style,
@@ -71,11 +78,17 @@ export const MapView = () => {
       maxZoom: MAX_ZOOM,
       maxBounds: NSW_BOUNDS,
       pitch,
-      maxPitch,
+      maxPitch: MAX_PITCH,
       attributionControl: { compact: true },
+      fadeDuration: zoom < SYMBOL_FADE_MIN_ZOOM ? 0 : SYMBOL_FADE_MS,
+      pixelRatio: Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO),
     });
 
     mapInstance.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
+    mapInstance.on("zoomend", () => syncSymbolFade(mapInstance));
+    mapInstance.on("error", (event) => {
+      if (event.error?.message !== NO_SATELLITE_IMAGERY) console.error(event.error);
+    });
 
     const collapseAttribution = () => {
       const attrib = mapInstance.getContainer().querySelector(".maplibregl-ctrl-attrib");
@@ -148,6 +161,7 @@ export const MapView = () => {
             terrainEnabled={terrain3d}
             onTerrainChange={setTerrain3d}
           />
+          <FollowTrainButton />
         </MapContext.Provider>
       )}
     </div>

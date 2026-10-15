@@ -13,9 +13,6 @@ const TILES_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{
 
 const MAX_ZOOM = 12;
 
-export const TERRAIN_MAX_PITCH = 75;
-export const FLAT_MAX_PITCH = 60;
-
 export const TERRAIN_SOURCE: RasterDEMSourceSpecification = {
   type: "raster-dem",
   tiles: [TILES_URL],

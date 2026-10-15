@@ -49,10 +49,14 @@ export interface AppState {
   setMapReady: Dispatch<SetStateAction<boolean>>;
   interpolatedTrainMovement: boolean;
   setInterpolatedTrainMovement: Dispatch<SetStateAction<boolean>>;
-  smoothInterpolatedTrainMovement: boolean;
-  setSmoothInterpolatedTrainMovement: Dispatch<SetStateAction<boolean>>;
+  smoothBackgroundMovement: boolean;
+  setSmoothBackgroundMovement: Dispatch<SetStateAction<boolean>>;
+  trainModelsOnMap: boolean;
+  setTrainModelsOnMap: Dispatch<SetStateAction<boolean>>;
   selectedItem: SelectedItem;
   setSelectedItem: Dispatch<SetStateAction<SelectedItem>>;
+  followSelectedTrain: boolean;
+  setFollowSelectedTrain: Dispatch<SetStateAction<boolean>>;
   trainStatic: TrainStaticState;
   staticLoadStatus: StaticLoadStatus;
 }
@@ -103,19 +107,42 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [interpolatedTrainMovement, setInterpolatedTrainMovement] = useState(
     storedTrainMovementSettings.interpolatedTrainMovement
   );
-  const [smoothInterpolatedTrainMovement, setSmoothInterpolatedTrainMovement] = useState(
-    storedTrainMovementSettings.smoothInterpolatedTrainMovement
+  const [smoothBackgroundMovement, setSmoothBackgroundMovement] = useState(
+    storedTrainMovementSettings.smoothBackgroundMovement
+  );
+  const [trainModelsOnMap, setTrainModelsOnMap] = useState(
+    storedTrainMovementSettings.trainModelsOnMap
   );
   const [selectedItem, setSelectedItem] = useState<SelectedItem>(null);
+  const [followedTripId, setFollowedTripId] = useState<string | null>(null);
   const [trainRealtime, setTrainRealtime] = useState<TrainRealtimeState>(initialTrainRealtime);
   const [trainStatic, setTrainStatic] = useState<TrainStaticState>(initialTrainStatic);
   const [timetables, setTimetables] = useState<Map<string, TimetableData>>(() => new Map());
   const [staticLoadStatus, setStaticLoadStatus] =
     useState<StaticLoadStatus>(initialStaticLoadStatus);
 
+  const selectedTripId =
+    selectedItem?.type === "train" ? (selectedItem.data as TrainPosition).tripId : null;
+  if (followedTripId != null && followedTripId !== selectedTripId) setFollowedTripId(null);
+  const followSelectedTrain = selectedTripId != null && followedTripId === selectedTripId;
+  const setFollowSelectedTrain = useCallback<Dispatch<SetStateAction<boolean>>>(
+    (next) => {
+      setFollowedTripId((followed) => {
+        const following = selectedTripId != null && followed === selectedTripId;
+        const follow = typeof next === "function" ? next(following) : next;
+        return follow ? selectedTripId : null;
+      });
+    },
+    [selectedTripId]
+  );
+
   useEffect(() => {
-    saveTrainMovementSettings({ interpolatedTrainMovement, smoothInterpolatedTrainMovement });
-  }, [interpolatedTrainMovement, smoothInterpolatedTrainMovement]);
+    saveTrainMovementSettings({
+      interpolatedTrainMovement,
+      smoothBackgroundMovement,
+      trainModelsOnMap,
+    });
+  }, [interpolatedTrainMovement, smoothBackgroundMovement, trainModelsOnMap]);
 
   const staticLoadStatusRef = useRef(staticLoadStatus);
   useEffect(() => {
@@ -215,18 +242,25 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setMapReady,
       interpolatedTrainMovement,
       setInterpolatedTrainMovement,
-      smoothInterpolatedTrainMovement,
-      setSmoothInterpolatedTrainMovement,
+      smoothBackgroundMovement,
+      setSmoothBackgroundMovement,
+      trainModelsOnMap,
+      setTrainModelsOnMap,
       selectedItem,
       setSelectedItem,
+      followSelectedTrain,
+      setFollowSelectedTrain,
       trainStatic,
       staticLoadStatus,
     }),
     [
       mapReady,
       interpolatedTrainMovement,
-      smoothInterpolatedTrainMovement,
+      smoothBackgroundMovement,
+      trainModelsOnMap,
       selectedItem,
+      followSelectedTrain,
+      setFollowSelectedTrain,
       trainStatic,
       staticLoadStatus,
     ]
