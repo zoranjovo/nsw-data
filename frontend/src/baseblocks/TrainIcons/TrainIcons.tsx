@@ -1,4 +1,4 @@
-import type maplibregl from "maplibre-gl";
+import maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
 import { isTimetableStale } from "@/lib/timetableRefresh";
@@ -18,6 +18,7 @@ import {
   TRAIN_POSITIONS_LAYER_ID,
 } from "../trainMapLayers";
 import { consistLayout, placeAlongTrain } from "./trainConsist";
+import { FOLLOW_MIN_ZOOM, followStep, isKeyboardPan, isPinch } from "./trainFollow";
 import { pickTrainMarker, type TrainMarker, trainIconSizePx } from "./trainMarkers";
 import { createTrainMarkersLayer, type TrainMarkersLayer } from "./trainMarkersLayer";
 import type { TrainModelsLayer } from "./trainModelsLayer";
@@ -48,6 +49,8 @@ export const TrainIcons = () => {
     smoothBackgroundMovement,
     trainModelsOnMap,
     trainStatic,
+    followSelectedTrain,
+    setFollowSelectedTrain,
   } = useAppContext();
   const { trainRealtime, timetables, cacheTimetables } = useLiveTrainData();
 
@@ -155,6 +158,7 @@ export const TrainIcons = () => {
       const { position } = marker;
       marker.isNearView =
         bounds == null ||
+        marker.isSelected ||
         (position.latitude >= bounds.minLat - NEAR_VIEW_MARGIN_DEGREES &&
           position.latitude <= bounds.maxLat + NEAR_VIEW_MARGIN_DEGREES &&
           position.longitude >= bounds.minLng - NEAR_VIEW_MARGIN_DEGREES &&
@@ -311,6 +315,57 @@ export const TrainIcons = () => {
       if (map.getLayer(TRAIN_MODELS_LAYER_ID)) map.removeLayer(TRAIN_MODELS_LAYER_ID);
     };
   }, [map, trainModelsOnMap, getMarkers]);
+
+  useEffect(() => {
+    if (!map || !followSelectedTrain) return;
+    if (isMapRemoved(map)) return;
+
+    const stopOnDrag = (event: maplibregl.MapLibreEvent<MouseEvent | TouchEvent | undefined>) => {
+      if (!isPinch(event.originalEvent)) setFollowSelectedTrain(false);
+    };
+    const stopOnKeyboardPan = (event: maplibregl.MapLibreEvent<Event | undefined>) => {
+      if (isKeyboardPan(event.originalEvent)) setFollowSelectedTrain(false);
+    };
+    map.on("drag", stopOnDrag);
+    map.on("movestart", stopOnKeyboardPan);
+
+    let target: maplibregl.LngLat | null = null;
+    const holdOnTrain: maplibregl.CameraUpdateTransformFunction = (next) =>
+      target && next.zoom >= FOLLOW_MIN_ZOOM ? { center: target } : {};
+    map.transformCameraUpdate = holdOnTrain;
+
+    let frameId: number | null = null;
+    let lastFrameMs = performance.now();
+    const follow = (frameMs: number) => {
+      frameId = window.requestAnimationFrame(follow);
+      const elapsedMs = frameMs - lastFrameMs;
+      lastFrameMs = frameMs;
+      target = null;
+      if (isMapRemoved(map) || map.getZoom() < FOLLOW_MIN_ZOOM) return;
+
+      const train = getMarkers().find((marker) => marker.isSelected);
+      if (!train) return;
+      const centre = map.getCenter();
+      const from = map.project(centre);
+      const to = map.project([train.longitude, train.latitude]);
+      const gapPx = Math.hypot(to.x - from.x, to.y - from.y);
+      const step = followStep(gapPx, elapsedMs);
+      target = new maplibregl.LngLat(
+        centre.lng + (train.longitude - centre.lng) * step,
+        centre.lat + (train.latitude - centre.lat) * step
+      );
+      if (gapPx >= 0.5 && !map.isMoving()) map.jumpTo({ center: target });
+    };
+    frameId = window.requestAnimationFrame(follow);
+
+    return () => {
+      if (frameId != null) window.cancelAnimationFrame(frameId);
+      if (isMapRemoved(map)) return;
+      map.off("drag", stopOnDrag);
+      map.off("movestart", stopOnKeyboardPan);
+      if (map.transformCameraUpdate === holdOnTrain) map.transformCameraUpdate = null;
+    };
+  }, [map, followSelectedTrain, setFollowSelectedTrain, getMarkers]);
 
   useEffect(() => {
     tripUpdatesFetchedAtRef.current = trainRealtime.tripUpdates.fetchedAt;

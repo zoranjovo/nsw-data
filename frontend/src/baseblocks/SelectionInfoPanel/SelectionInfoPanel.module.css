@@ -166,6 +166,34 @@
   text-overflow: ellipsis;
 }
 
+.followButton {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 0;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid oklch(1 0 0 / 0.1);
+  border-radius: 6px;
+  background: transparent;
+  color: oklch(0.6 0 0);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.followButton:hover {
+  color: oklch(0.86 0 0);
+  background: oklch(1 0 0 / 0.06);
+  border-color: oklch(1 0 0 / 0.16);
+}
+
 .closeBtn {
   flex-shrink: 0;
   color: oklch(0.52 0 0);

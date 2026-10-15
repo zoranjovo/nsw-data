@@ -8,6 +8,8 @@ import { SelectionInfoPanel } from "./SelectionInfoPanel";
 const mocks = vi.hoisted(() => ({
   selectedItem: null as unknown,
   setSelectedItem: vi.fn(),
+  following: false,
+  setFollowSelectedTrain: vi.fn(),
   live: null as unknown as LiveTrainData,
 }));
 
@@ -16,6 +18,8 @@ vi.mock("@/providers/AppProvider", () => ({
     ({
       selectedItem: mocks.selectedItem as SelectedItem,
       setSelectedItem: mocks.setSelectedItem,
+      followSelectedTrain: mocks.following,
+      setFollowSelectedTrain: mocks.setFollowSelectedTrain,
       trainStatic: {
         status: "ready",
         tracks: { type: "FeatureCollection", name: "train-tracks", features: [] },
@@ -51,6 +55,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   mocks.live = makeLiveTrainData();
   mocks.setSelectedItem.mockReset();
+  mocks.setFollowSelectedTrain.mockReset();
+  mocks.following = false;
   select(null);
 });
 
@@ -163,5 +169,22 @@ describe("SelectionInfoPanel", () => {
     rerender();
     act(() => vi.advanceTimersByTime(280));
     expect(screen.getByText("Unknown")).toBeTruthy();
+  });
+
+  it("offers to follow the train when it is not being followed", () => {
+    select(makeTrain("a"));
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Follow train" }));
+
+    expect(mocks.setFollowSelectedTrain).toHaveBeenCalledWith(true);
+  });
+
+  it("hides the follow button while the train is being followed", () => {
+    mocks.following = true;
+    select(makeTrain("a"));
+    renderPanel();
+
+    expect(screen.queryByRole("button", { name: "Follow train" })).toBeNull();
   });
 });

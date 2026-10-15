@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { LocateFixed, X } from "lucide-react";
 import { DateTime } from "luxon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,7 @@ const PanelContent = ({
   routeShortName: string | null;
 }) => {
   const { timetables } = useLiveTrainData();
+  const { followSelectedTrain, setFollowSelectedTrain } = useAppContext();
   const timetable = timetables.get(train.tripId);
   const destination = describeTrainDestination({
     tripHeadsign: timetable?.tripHeadsign,
@@ -149,6 +150,16 @@ const PanelContent = ({
         <TrainModelPreview fleetCode={train.fleetCode} destination={destination} isOpen={isOpen}>
           <FleetBadge train={train} />
         </TrainModelPreview>
+        {!followSelectedTrain && (
+          <button
+            type="button"
+            className={styles.followButton}
+            onClick={() => setFollowSelectedTrain(true)}
+          >
+            <LocateFixed size={12} aria-hidden="true" />
+            Follow train
+          </button>
+        )}
         <div className={styles.statsRow}>
           <div className={styles.stat}>
             <span className={styles.statLabel}>Speed</span>

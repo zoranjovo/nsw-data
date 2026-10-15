@@ -7,6 +7,7 @@ import { TrainIcons } from "../TrainIcons/TrainIcons";
 import { TrainStations } from "../TrainStations/TrainStations";
 import { TrainLines } from "../TrainTracks/TrainTracks";
 import { Buildings3D } from "./Buildings3D";
+import { FollowTrainButton } from "./FollowTrainButton";
 import { MapContext } from "./MapContext";
 import styles from "./MapView.module.css";
 import { Terrain3D } from "./Terrain3D";
@@ -160,6 +161,7 @@ export const MapView = () => {
             terrainEnabled={terrain3d}
             onTerrainChange={setTerrain3d}
           />
+          <FollowTrainButton />
         </MapContext.Provider>
       )}
     </div>

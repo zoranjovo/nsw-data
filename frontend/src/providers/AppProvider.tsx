@@ -55,6 +55,8 @@ export interface AppState {
   setTrainModelsOnMap: Dispatch<SetStateAction<boolean>>;
   selectedItem: SelectedItem;
   setSelectedItem: Dispatch<SetStateAction<SelectedItem>>;
+  followSelectedTrain: boolean;
+  setFollowSelectedTrain: Dispatch<SetStateAction<boolean>>;
   trainStatic: TrainStaticState;
   staticLoadStatus: StaticLoadStatus;
 }
@@ -112,11 +114,27 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     storedTrainMovementSettings.trainModelsOnMap
   );
   const [selectedItem, setSelectedItem] = useState<SelectedItem>(null);
+  const [followedTripId, setFollowedTripId] = useState<string | null>(null);
   const [trainRealtime, setTrainRealtime] = useState<TrainRealtimeState>(initialTrainRealtime);
   const [trainStatic, setTrainStatic] = useState<TrainStaticState>(initialTrainStatic);
   const [timetables, setTimetables] = useState<Map<string, TimetableData>>(() => new Map());
   const [staticLoadStatus, setStaticLoadStatus] =
     useState<StaticLoadStatus>(initialStaticLoadStatus);
+
+  const selectedTripId =
+    selectedItem?.type === "train" ? (selectedItem.data as TrainPosition).tripId : null;
+  if (followedTripId != null && followedTripId !== selectedTripId) setFollowedTripId(null);
+  const followSelectedTrain = selectedTripId != null && followedTripId === selectedTripId;
+  const setFollowSelectedTrain = useCallback<Dispatch<SetStateAction<boolean>>>(
+    (next) => {
+      setFollowedTripId((followed) => {
+        const following = selectedTripId != null && followed === selectedTripId;
+        const follow = typeof next === "function" ? next(following) : next;
+        return follow ? selectedTripId : null;
+      });
+    },
+    [selectedTripId]
+  );
 
   useEffect(() => {
     saveTrainMovementSettings({
@@ -230,6 +248,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setTrainModelsOnMap,
       selectedItem,
       setSelectedItem,
+      followSelectedTrain,
+      setFollowSelectedTrain,
       trainStatic,
       staticLoadStatus,
     }),
@@ -239,6 +259,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       smoothBackgroundMovement,
       trainModelsOnMap,
       selectedItem,
+      followSelectedTrain,
+      setFollowSelectedTrain,
       trainStatic,
       staticLoadStatus,
     ]
